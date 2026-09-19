@@ -1,0 +1,15 @@
+spring:
+  # A URL do banco vem do container via @ServiceConnection; nada de datasource fixo aqui.
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    clean-disabled: false
+
+logging:
+  level:
+    com.ticketsystem: DEBUG
+    org.testcontainers: WARN
+    tc: WARN

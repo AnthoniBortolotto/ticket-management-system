@@ -1,0 +1,25 @@
+# Cluster local de uma so maquina, com as portas 80/443 expostas para o ingress.
+#
+#   kind create cluster --config k8s/kind-config.yaml
+#   kubectl apply -k k8s/base
+#
+# Isto e demonstracao de deploy, nao ambiente de desenvolvimento: o loop de dev e o
+# Docker Compose. Ver docs/adr/0002-infra-local-compose-e-kubernetes.md.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ticket-system
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP

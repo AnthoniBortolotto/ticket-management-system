@@ -101,30 +101,70 @@ auditoria são **append-only**: nunca atualize nem delete um `AuditEvent`.
 
 ## Stack e versões
 
+As versões abaixo são as que estão no `pom.xml` e no `package.json` hoje. O porquê de
+cada uma, e das duas que ficaram deliberadamente atrás do `latest`, está em
+[docs/adr/0001-versoes-da-stack.md](docs/adr/0001-versoes-da-stack.md).
+
 | Item | Versão / escolha |
 |---|---|
 | Java | 25 (LTS vigente) |
-| Spring Boot | 4.x |
+| Spring Boot | 4.1.1 |
 | Build backend | Maven (`./mvnw`) |
-| Modularidade | Spring Modulith, na linha alinhada ao Boot 4 (fronteiras verificadas por teste) |
+| Modularidade | Spring Modulith 2.1.1 (fronteiras verificadas por teste) |
+| Contrato | springdoc-openapi 3.1.1 |
 | Banco | PostgreSQL 16, migrations com Flyway |
-| Node | 20+ |
-| Frontend | Next.js 14+ com App Router |
+| Node | 24 (fixado em `.nvmrc` e em `engines`) |
+| Frontend | Next.js 16 com App Router, React 19 |
+| TypeScript | 5.9.x — **não** a 7.x, ver abaixo |
 | Package manager | pnpm |
 
 Não troque nenhuma dessas escolhas sem pedir. Em particular: **App Router, não Pages
 Router**; **Maven, não Gradle**.
 
-**Três compatibilidades a confirmar ao escrever o `pom.xml`**, porque são as que
-costumam ficar para trás quando Java e Spring sobem de major:
+### Armadilhas já confirmadas — não redescubra
 
-- **springdoc-openapi** precisa de versão que suporte o Spring Boot 4. Toda a geração de
-  tipos do frontend depende dele, então é bloqueante.
-- **PITest** e **JaCoCo** precisam conhecer a versão de bytecode do Java 25. Se o PITest
-  engasgar, a decisão é entre travar a versão do Java ou abrir mão do mutation testing —
-  não silenciar o plugin.
-- **Jackson**: o Spring Boot 4 pode trazer um major diferente do que você conhece.
-  Confira antes de escrever `JacksonConfig`.
+Estas seis custaram tempo no setup e continuam valendo. O detalhe está no ADR 0001.
+
+- **O Boot 4 usa Jackson 3 (`tools.jackson`), não Jackson 2.** Configuração escrita com
+  `com.fasterxml.jackson.*` compila e não tem efeito nenhum. A flag
+  `WRITE_DATES_AS_TIMESTAMPS` saiu de `SerializationFeature` e foi para `DateTimeFeature`;
+  `spring.jackson.serialization.write-dates-as-timestamps` **derruba o contexto no boot**.
+  Quem cuida disso é `config/JacksonConfig.java`.
+- **`spring-boot-starter-web` está deprecado** no Boot 4. Use
+  `spring-boot-starter-webmvc`.
+- **No Boot 4 as autoconfigurações saíram para módulos por tecnologia.** Com apenas
+  `org.flywaydb:flyway-core` no classpath, a aplicação **sobe, não loga nada e não
+  migra** — falha silenciosa perfeita. É preciso `spring-boot-starter-flyway`. Regra
+  geral: ao adicionar uma tecnologia, prefira o starter do Boot à biblioteca crua, e
+  confirme no log que ela realmente inicializou.
+- **Testcontainers 2.x renomeou os módulos:** `testcontainers-postgresql` e
+  `testcontainers-junit-jupiter`. Os nomes antigos param na 1.21 e o erro que aparece é
+  "version is missing".
+- **`@ApplicationModule` em pacote sem nenhuma classe quebra o build.** O ArchUnit falha
+  ao refletir sobre um `package-info` solitário, e o estrago vaza para o
+  `@SpringBootTest`, que passa a não achar a `@SpringBootConfiguration`. Os pacotes de
+  módulo ainda vazios têm `package-info.java` só com javadoc: **a anotação entra junto
+  com a primeira classe do módulo.**
+- **TypeScript fica na 5.9.** O `eslint-config-next` depende de `typescript-eslint@8`,
+  cujo peer é `<6.1.0`. Subir para a 7 quebra o `pnpm lint`, e o CLAUDE.md proíbe
+  desabilitar regra de lint para o código passar.
+
+### Rede com inspeção TLS
+
+Se `./mvnw` falhar com `PKIX path building failed`, há um antivírus ou proxy
+interceptando HTTPS e o truststore do JDK não conhece a CA dele. Contorno no Windows:
+
+```bash
+export MAVEN_OPTS="-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT"
+```
+
+Isso **não** resolve `docker build`: o container tem o próprio truststore e vai falhar
+ao baixar do Maven Central e do registry do npm. Nesse caso a saída é desligar a
+inspeção TLS do antivírus. Não comite certificado de máquina no repositório.
+
+**Consequência prática:** as imagens de `docker/backend.Dockerfile` e
+`docker/frontend.Dockerfile` nunca foram construídas com sucesso, então podem conter
+erros. `docker compose up -d postgres` funciona, e é assim que se desenvolve.
 
 ## Arquitetura e versionamento
 
@@ -280,11 +320,42 @@ cd frontend && pnpm typecheck                  # tsc --noEmit
 
 # E2E (exige a stack completa de pé)
 docker compose -f docker/docker-compose.yml up -d
+pnpm --dir e2e install                         # uma vez
+pnpm --dir e2e exec playwright install chromium # uma vez
 pnpm --dir e2e test                            # Playwright
 
 # Infra
-docker compose -f docker/docker-compose.yml up -d postgres
+docker compose -f docker/docker-compose.yml up -d postgres   # só o banco (dev)
+docker compose -f docker/docker-compose.yml up -d            # stack completa
+
+# Kubernetes — demonstração de deploy, não ambiente de desenvolvimento
+kind create cluster --config k8s/kind-config.yaml
+docker compose -f docker/docker-compose.yml build
+kind load docker-image ticket-system/backend:local ticket-system/frontend:local --name ticket-system
+kubectl apply -k k8s/base
 ```
+
+## Kubernetes em `k8s/`
+
+Os manifests existem como demonstração de deploy. **O ambiente de desenvolvimento é o
+Docker Compose** — o motivo está em
+[docs/adr/0002-infra-local-compose-e-kubernetes.md](docs/adr/0002-infra-local-compose-e-kubernetes.md).
+
+Como eles não são exercitados no dia a dia, nada avisa quando ficam errados. Por isso:
+
+> **Variável de ambiente, porta, probe, imagem ou serviço que muda no
+> `docker/docker-compose.yml` muda no `k8s/base/` na mesma alteração.**
+
+Na prática, a cada alteração em `docker-compose.yml` ou nos Dockerfiles, confira:
+
+- variável nova ou renomeada → `k8s/base/config.yaml` (ConfigMap ou Secret, conforme for
+  segredo);
+- porta que mudou → Deployment, Service e, se for exposta, o Ingress;
+- healthcheck que mudou → as probes do Deployment correspondente;
+- serviço novo → Deployment + Service novos, e a entrada no `kustomization.yaml`.
+
+Depois de mexer, valide com `kubectl kustomize k8s/base` — ele renderiza sem cluster e
+pega erro de YAML e de referência. Manifest que não renderiza é manifest quebrado.
 
 ## Convenções — backend
 
@@ -480,7 +551,7 @@ por isso o teste dela não pode vir depois.
 | Mutation testing | PITest (`pitest-maven`) | Altera o código de propósito — inverte um `if`, troca `>` por `>=` — e falha se nenhum teste quebrar. É o antídoto contra cobertura inflada. Roda sobre `domain` e `service`. |
 | Unitário frontend | Vitest + React Testing Library | Teste comportamento visível ao usuário, não implementação. |
 | Mock de API no frontend | MSW | Intercepta no nível da rede, então o componente é testado sem saber que está mockado. |
-| E2E | Playwright | Contra a stack completa no Docker. O auto-wait elimina flakiness de timing e o trace viewer mostra o passo a passo de uma falha no CI. |
+| E2E | Playwright | Contra a stack completa no Docker. O auto-wait elimina flakiness de timing e o trace viewer mostra o passo a passo de uma falha sem precisar reproduzir. |
 | Dados de teste | Builders (`TicketBuilder.aTicket().assignedToTeam(x).build()`) | Sem eles, o setup de um teste com ticket + equipe + SLA vira 40 linhas ilegíveis e o time para de escrever teste. |
 
 ### Regras que não se negociam
@@ -500,7 +571,13 @@ escreva a asserção a partir da regra documentada aqui, não a partir do códig
 2. Teste de integração cobrindo o caso negativo de permissão.
 3. Teste E2E do fluxo feliz, com os cenários listados antes de implementar.
 4. `./mvnw verify` passando, incluindo threshold de cobertura.
-5. `CODEBASE-MAP.md` atualizado.
+5. `pnpm lint`, `pnpm typecheck`, `pnpm test` e `pnpm build` passando, se tocou no
+   frontend.
+6. `CODEBASE-MAP.md` atualizado.
+
+**Não existe CI neste projeto.** Nenhum pipeline vai pegar o que passar batido, então
+os passos acima são a única rede — rode todos antes de commitar, não só os do lado que
+você mexeu.
 
 ## Git
 

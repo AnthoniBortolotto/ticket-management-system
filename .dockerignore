@@ -1,0 +1,12 @@
+# Este arquivo vale para o contexto de build, que e a raiz do repositorio.
+**/.git
+**/.github
+**/node_modules
+**/.next
+**/target
+**/.env
+**/.env.local
+**/*.log
+docs/
+e2e/
+k8s/

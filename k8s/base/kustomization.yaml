@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ticket-system
+
+# `labels` no lugar do `commonLabels` deprecado. includeSelectors fica false de
+# proposito: selector de Deployment e imutavel, e mexer nele quebra o proximo apply.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: ticket-system
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - backend.yaml
+  - frontend.yaml
+  - ingress.yaml

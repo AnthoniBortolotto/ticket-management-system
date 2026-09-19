@@ -17,9 +17,19 @@ atualização estão em
 
 # Parte 1 — O que existe hoje
 
-**Estado do repositório: apenas documentação.** Não há código, build, configuração nem
-dependências. Se você está procurando implementação, ela não está em lugar nenhum — o
-que existe sobre ela é desenho, na Parte 2.
+**Estado do repositório: esqueleto de pé, sem domínio.** Backend compila, sobe e passa
+`./mvnw verify`; frontend passa `lint`, `typecheck`, `test` e `build`; a stack tem
+Compose e manifests de Kubernetes. **Nenhuma regra de negócio foi implementada** — não
+há entidade, migration, endpoint nem tela de ticket.
+
+**Não há CI.** Toda verificação é manual: rode os comandos de
+[CLAUDE.md](CLAUDE.md#comandos) antes de commitar. Em particular, **as imagens Docker
+nunca foram construídas** — ver a nota em `docker/` abaixo.
+
+**Legenda:** ✅ pronto · 🚧 em andamento. Só aparecem na Parte 1 — na Parte 2 tudo é
+planejado por definição, e marcar isso linha a linha seria ruído.
+
+## Raiz
 
 | Caminho | Status | O que é |
 |---|---|---|
@@ -27,12 +37,132 @@ que existe sobre ela é desenho, na Parte 2.
 | `CLAUDE.md` | ✅ | Regras de trabalho, convenções e regras de domínio invioláveis. |
 | `CODEBASE-MAP.md` | ✅ | Este arquivo. |
 | `LICENSE` | ✅ | Licença do projeto. |
-| `.gitignore` | ✅ | Ignora artefatos de Node, Java/Maven, IDEs e do sistema operacional. Versiona de propósito o wrapper do Maven, os `.env.example` e os arquivos compartilhados do VS Code. |
+| `.gitignore` | ✅ | Ignora artefatos de Node, Java/Maven, Playwright, IDEs e SO. Versiona de propósito o wrapper do Maven, os `.env.example` e os arquivos compartilhados do VS Code. |
+| `.dockerignore` | ✅ | Enxuga o contexto de build, que é a raiz do repositório para os dois Dockerfiles. |
 
-**Não existem ainda:** `backend/`, `frontend/`, `e2e/`, `docker/`, `docs/`.
+## Backend — `backend/`
 
-**Legenda:** ✅ pronto · 🚧 em andamento. Só aparecem na Parte 1 — na Parte 2 tudo é
-planejado por definição, e marcar isso linha a linha seria ruído.
+Maven padrão, pacote raiz `com.ticketsystem`, organização por feature. As fronteiras são
+verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é interno.
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Os comentários dele registram as armadilhas de versão. |
+| `mvnw`, `mvnw.cmd`, `.mvn/wrapper/` | ✅ | Wrapper do Maven 3.9.12: o build funciona sem Maven instalado. |
+| `.env.example` | ✅ | Modelo das variáveis. Opcional para desenvolver — `application.yml` já tem defaults que apontam para o Postgres do Compose. |
+
+### `src/main/java/com/ticketsystem/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `TicketSystemApplication.java` | ✅ | Entrypoint do Spring Boot. |
+| `config/package-info.java` | ✅ | Declara `config` como módulo aberto do Modulith. |
+| `config/SecurityConfig.java` | ✅ | Cadeia de filtros stateless: libera health e a documentação do contrato, exige autenticação no resto. Sem mecanismo de login ainda — nega por padrão. |
+| `config/JacksonConfig.java` | ✅ | Força data em ISO-8601. Existe como classe porque no Jackson 3 a flag mudou de enum e o Boot 4 não expõe propriedade para ela. |
+| `config/OpenApiConfig.java` | ✅ | Metadados e esquema de segurança do schema em `/v3/api-docs`, de onde saem os tipos do frontend. |
+| `config/JpaConfig.java` | ✅ | Liga a auditoria do Spring Data que preenche `createdAt` e `updatedAt`. |
+| `common/package-info.java` | ✅ | Declara `common` como módulo aberto do Modulith. |
+| `common/error/ApiError.java` | ✅ | Corpo único de erro da API, com a lista de campos rejeitados na validação. |
+| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP. Hoje cobre validação e rota inexistente; cada módulo registra aqui as suas exceções. |
+| `common/domain/BaseEntity.java` | ✅ | Id e carimbos de tempo em UTC, com igualdade por id. |
+| `auth/`, `user/`, `team/`, `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
+
+### `src/main/resources/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, Jackson em UTC, virtual threads e probes do Actuator. |
+| `db/migration/` | 🚧 | Vazio. A primeira migration nasce com a primeira entidade. |
+
+### `src/test/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `ModularityTest.java` | ✅ | Roda `ApplicationModules.verify()` e gera os diagramas em `docs/modules/`. |
+| `TicketSystemApplicationIT.java` | ✅ | Sobe o contexto inteiro contra um Postgres real e confirma que Flyway e JPA ligaram. |
+| `config/JacksonConfigTest.java` | ✅ | Fixa a serialização de `Instant` como string ISO-8601 — o formato é contrato, não default de biblioteca. |
+| `common/domain/BaseEntityTest.java` | ✅ | A igualdade de entidade: duas instâncias sem id nunca são iguais, e o hash sobrevive à persistência. |
+| `support/PostgresContainer.java` | ✅ | Container Postgres 16 reaproveitado, ligado ao contexto por `@ServiceConnection`. |
+| `support/IntegrationTest.java` | ✅ | Anotação-base que junta `@SpringBootTest`, perfil de teste e o container. |
+| `resources/application-test.yml` | ✅ | Configuração dos testes. Sem datasource fixo: a URL vem do container. |
+
+## Frontend — `frontend/`
+
+Organização por módulo, atomic design em quatro níveis dentro de cada um.
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `package.json` | ✅ | Next 16, React 19, TypeScript 5.9, Vitest, MSW, `openapi-typescript`. Scripts `dev`, `build`, `lint`, `typecheck`, `test`, `gen:api`. |
+| `next.config.mjs` | ✅ | `output: 'standalone'` para a imagem de produção, strict mode e rotas tipadas. |
+| `tsconfig.json` | ✅ | Strict com `noUncheckedIndexedAccess` e alias `@/*`. |
+| `eslint.config.mjs` | ✅ | Flat config nativo do `eslint-config-next` 16, sem `FlatCompat`. |
+| `vitest.config.mts` | ✅ | jsdom, alias `@/*` e CSS ligado. É `.mts` porque `.ts` seria carregado como CommonJS. |
+| `vitest.setup.ts` | ✅ | Carrega os matchers do `jest-dom`. |
+| `.env.example`, `.nvmrc` | ✅ | Modelo de variáveis e a versão do Node (24). |
+
+### `src/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `app/layout.tsx` | ✅ | Layout raiz: `metadata`, idioma e estilos globais. |
+| `app/page.tsx`, `app/page.module.css` | ✅ | Placeholder da raiz. Sai quando a rota de tickets existir. |
+| `styles/tokens.css` | ✅ | Design tokens: cor (incluindo um por status e por prioridade), espaço, tipografia, raio e sombra, com tema escuro. Todo `styles.module.css` consome daqui. |
+| `styles/globals.css` | ✅ | Reset, estilos de documento e respeito a `prefers-reduced-motion`. |
+| `lib/http/client.ts` | ✅ | `fetch` tipado do lado servidor, com `server-only` para o build quebrar se um Client Component importar. |
+| `modules/shared/components/atoms/Button/` | ✅ | Primeiro atom, com teste. Serve de modelo da anatomia de componente: arquivo, teste, `styles.module.css` e `index.ts`. |
+| `modules/{ticket,team,user,auth}/`, `modules/shared/` | 🚧 | Diretórios criados na forma acordada (`components/{atoms,molecules,organisms,pages}`, `actions`, `services`, `hooks`, `utils`, `types`), ainda vazios. |
+| `types/api.d.ts` | ✅ | Tipos gerados do schema OpenAPI por `pnpm gen:api`. Hoje vazio porque não há endpoint; o pipeline foi validado de ponta a ponta. **Não edite à mão.** |
+
+## E2E — `e2e/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `package.json` | ✅ | Playwright 1.63 e os scripts da suíte. |
+| `playwright.config.ts` | ✅ | Aponta para a stack local, com trace, screenshot e vídeo retidos em falha. |
+| `specs/smoke.spec.ts` | ✅ | Confere que o frontend responde e que o backend está `UP`. Prova o harness; os fluxos reais vêm com as features. |
+| `fixtures/`, `seed/` | 🚧 | Vazios. Sessões por papel e carga inicial entram quando houver o que autenticar. |
+
+## Infraestrutura — `docker/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `docker-compose.yml` | ✅ | Postgres, backend e frontend, com healthcheck e `depends_on` encadeado. `up -d` sobe tudo; `up -d postgres` sobe só o banco. |
+| `backend.Dockerfile` | 🚧 | Multi-stage Temurin 25: baixa dependências antes de copiar o código, e o runtime é JRE com usuário sem privilégio. **Nunca foi construído com sucesso** — ver abaixo. |
+| `frontend.Dockerfile` | 🚧 | Três estágios sobre Node 24, publicando a saída `standalone` do Next. **Idem.** |
+
+> ⚠️ **`docker compose build` não foi validado.** Na máquina de desenvolvimento o Avast
+> intercepta TLS, e o truststore dentro do container não conhece a CA dele: o download
+> do Maven Central e do registry do npm falha com `certificate verify failed`. O
+> `docker compose up -d postgres` funciona (só puxa imagem pronta), e backend e frontend
+> foram validados rodando na máquina. **Os dois Dockerfiles ainda podem ter erros.**
+> Para construí-los é preciso desligar a inspeção HTTPS do antivírus ou usar uma rede
+> sem interceptação.
+
+## Kubernetes — `k8s/`
+
+Demonstração de deploy sobre as **mesmas imagens** que o Compose constrói. Não é o
+ambiente de desenvolvimento — ver
+[ADR 0002](docs/adr/0002-infra-local-compose-e-kubernetes.md). A regra de sincronia com
+o Compose está em [CLAUDE.md](CLAUDE.md#kubernetes-em-k8s).
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `kind-config.yaml` | ✅ | Cluster de um nó com as portas 80 e 443 mapeadas e o nó marcado para o ingress. |
+| `base/kustomization.yaml` | ✅ | Junta os manifests no namespace `ticket-system`. |
+| `base/namespace.yaml` | ✅ | O namespace. |
+| `base/config.yaml` | ✅ | ConfigMap com a configuração e Secret com credenciais de desenvolvimento. |
+| `base/postgres.yaml` | ✅ | PVC, Deployment com estratégia `Recreate` e Service do banco. |
+| `base/backend.yaml` | ✅ | Deployment com startup, readiness e liveness nas sondas do Actuator, mais o Service. |
+| `base/frontend.yaml` | ✅ | Deployment e Service do Next. |
+| `base/ingress.yaml` | ✅ | Roteia `/` para o frontend e `/api`, `/swagger-ui` e `/v3/api-docs` para o backend. |
+
+## Documentação — `docs/`
+
+| Caminho | Status | O que faz |
+|---|---|---|
+| `adr/0001-versoes-da-stack.md` | ✅ | As versões escolhidas, as quatro armadilhas confirmadas na prática e por que TypeScript e ESLint ficam atrás do `latest`. |
+| `adr/0002-infra-local-compose-e-kubernetes.md` | ✅ | Por que Compose desenvolve e Kubernetes demonstra, e o que mantém o `k8s/` honesto. |
+| `modules/` | ✅ | Diagramas PlantUML e canvas por módulo. **Saída de build**: regerados a cada `./mvnw test`, nunca escritos à mão. |
 
 ---
 
@@ -57,86 +187,20 @@ planejado por definição, e marcar isso linha a linha seria ruído.
 | Mudar login / emissão de token | `backend/.../auth/` e `frontend/src/lib/auth/` |
 | Mudar uma tela | `frontend/src/modules/{módulo}/components/pages/` (composição) e `frontend/src/app/` (auth e dados) |
 | Criar um componente novo | `frontend/src/modules/{módulo}/components/{atoms\|molecules\|organisms}/` |
-| Mudar como o frontend lê da API | `frontend/src/modules/{módulo}/services/` e `frontend/src/lib/http/client.ts` |
+| Mudar como o frontend lê da API | `frontend/src/modules/{módulo}/services/` e `frontend/src/lib/http/client.ts` ✅ |
 | Mudar como o frontend escreve na API | `frontend/src/modules/{módulo}/actions/` |
-| Mudar cor, espaçamento ou raio | `frontend/src/styles/tokens.css` |
-| Mudar variáveis de ambiente ou containers | `docker/` e os `.env.example` |
+| Mudar cor, espaçamento ou raio | `frontend/src/styles/tokens.css` ✅ |
+| Mudar variáveis de ambiente ou containers | `docker/` ✅, os `.env.example` ✅ e, na mesma alteração, `k8s/base/` ✅ |
 | Entender o que testar antes e o que testar depois | [CLAUDE.md](CLAUDE.md#testes) |
-| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` (builders e classe-base) |
-| Escrever um teste E2E | `e2e/specs/` |
-
-## Raiz do repositório
-
-| Caminho | O que será |
-|---|---|
-| `backend/` | API REST em Spring Boot. |
-| `frontend/` | Aplicação Next.js. |
-| `docker/` | Compose e infraestrutura local. |
-| `docs/` | Decisões de arquitetura (ADRs) e diagramas. |
-| `e2e/` | Suíte Playwright, que roda contra a stack completa no Docker. Fica na raiz porque atravessa frontend e backend. |
+| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ (builders ainda não existem) |
+| Escrever um teste E2E | `e2e/specs/` ✅ |
 
 ---
 
-## Backend — `backend/`
+## Backend — o que falta
 
-Estrutura Maven padrão. Pacote raiz: `com.ticketsystem`. A organização é **por feature**,
-não por camada técnica, e as fronteiras são verificadas por **Spring Modulith**: o que
-está na raiz do pacote do módulo é público, o que está em subpacote é interno. Dentro
-de cada feature, só `web` é versionado — `domain`, `service` e `infra` são únicos.
-
-O porquê de cada decisão está em
-[CLAUDE.md](CLAUDE.md#arquitetura-e-versionamento).
-
-### Estrutura geral
-
-```
-backend/
-├── pom.xml                                  dependências e plugins Maven
-├── mvnw, mvnw.cmd                           wrapper do Maven
-├── .env.example                             modelo das variáveis de ambiente
-└── src/
-    ├── main/
-    │   ├── java/com/ticketsystem/
-    │   │   ├── TicketSystemApplication.java  entrypoint Spring Boot
-    │   │   ├── config/                       configuração transversal (módulo aberto)
-    │   │   ├── common/                       código compartilhado (módulo aberto)
-    │   │   ├── auth/                         autenticação e emissão de JWT
-    │   │   ├── user/                         usuários e papéis globais
-    │   │   ├── team/                         equipes e vínculos de membro
-    │   │   ├── ticket/                       o núcleo do domínio
-    │   │   │   ├── TicketFacade.java          API pública do módulo
-    │   │   │   ├── TicketStatusChanged.java   evento público
-    │   │   │   ├── domain/                    entidades, regras, interface do repositório
-    │   │   │   ├── service/                   casos de uso
-    │   │   │   ├── infra/                     implementação do repositório
-    │   │   │   └── web/v1/                    controller + DTOs da v1
-    │   │   ├── sla/                          políticas e relógio de SLA
-    │   │   └── audit/                        histórico imutável de mudanças
-    │   └── resources/
-    │       ├── application.yml               configuração da aplicação
-    │       └── db/migration/                 migrations Flyway
-    └── test/
-        ├── java/com/ticketsystem/
-        │   ├── ModularityTest.java           verifica as fronteiras entre módulos
-        │   ├── support/                      builders e classes-base de teste
-        │   └── <feature>/                    espelha a estrutura de main/
-        └── resources/
-            └── application-test.yml          configuração usada nos testes
-```
-
-### `config/` e `common/` — transversais
-
-Declarados como módulos abertos no Modulith: qualquer módulo pode usá-los.
-
-| Caminho | O que fará |
-|---|---|
-| `config/SecurityConfig.java` | Define a cadeia de filtros do Spring Security, rotas públicas e a exigência de JWT no resto. |
-| `config/JwtAuthenticationFilter.java` | Lê o token de cada requisição, valida e popula o `SecurityContext`. |
-| `config/OpenApiConfig.java` | Metadados do springdoc e esquema de segurança exibido no Swagger. |
-| `config/JacksonConfig.java` | Serialização de datas em UTC/ISO-8601. |
-| `common/error/GlobalExceptionHandler.java` | Único ponto que traduz exceção de domínio em resposta HTTP. |
-| `common/error/ApiError.java` | Formato padrão do corpo de erro devolvido pela API. |
-| `common/domain/BaseEntity.java` | Id, `createdAt` e `updatedAt` herdados pelas entidades. |
+O porquê de cada decisão está em [CLAUDE.md](CLAUDE.md#arquitetura-e-versionamento).
+Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra` são únicos.
 
 ### `auth/` — autenticação
 
@@ -144,8 +208,9 @@ Declarados como módulos abertos no Modulith: qualquer módulo pode usá-los.
 |---|---|
 | `auth/AuthFacade.java` | API pública: resolve o usuário autenticado para os demais módulos. |
 | `auth/web/v1/AuthController.java` | Endpoints de login e refresh de token. |
-| `auth/service/JwtService.java` | Emite e valida os tokens assinados. |
+| `auth/service/JwtService.java` | Emite e valida os tokens assinados. A biblioteca ainda não foi escolhida — ver a nota sobre Jackson 3 no [ADR 0001](docs/adr/0001-versoes-da-stack.md). |
 | `auth/service/AuthService.java` | Confere credenciais e monta o token com papel e equipes do usuário. |
+| `config/JwtAuthenticationFilter.java` | Lê o token de cada requisição, valida e popula o `SecurityContext`. Entra na cadeia do `SecurityConfig`, que hoje nega tudo que não é público. |
 
 ### `user/` — usuários
 
@@ -221,20 +286,16 @@ Declarados como módulos abertos no Modulith: qualquer módulo pode usá-los.
 | `V2__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
 | `V3__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
 | `V4__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
-| `V5__create_event_publication.sql` | Tabela do registro de publicação de eventos do Spring Modulith, que garante reprocessamento de listener que falhou. |
+| `V5__create_event_publication.sql` | Tabela do registro de publicação de eventos do Spring Modulith, que garante reprocessamento de listener que falhou. Vem junto com a dependência `spring-modulith-starter-jpa`, que ainda não está no `pom.xml`. |
 
 Nomes sujeitos a ajuste conforme a implementação avança.
 
-### `src/test/` — testes do backend
+### Testes que faltam
 
-A estrutura espelha a de `main/`: o teste de `ticket/service/TicketService.java` fica em
-`ticket/service/TicketServiceTest.java`. A estratégia — o que se escreve antes e o que
-se escreve depois — está em [CLAUDE.md](CLAUDE.md#testes).
+A estrutura espelha a de `main/`. A estratégia está em [CLAUDE.md](CLAUDE.md#testes).
 
 | Caminho | O que fará |
 |---|---|
-| `ModularityTest.java` | Roda `ApplicationModules.verify()`: quebra o build se um módulo importar classe interna de outro ou se houver ciclo. Também gera os diagramas de módulo. |
-| `support/IntegrationTest.java` | Anotação-base que sobe o contexto Spring e o container Postgres reaproveitado entre classes. |
 | `support/TicketBuilder.java` | Monta tickets para teste em uma linha, escondendo o setup de equipe, solicitante e SLA. |
 | `support/UserBuilder.java`, `support/TeamBuilder.java` | Mesmo papel para usuários, equipes e vínculos. |
 | `ticket/service/` | Testes unitários das regras de transição, atribuição e acesso. |
@@ -245,24 +306,7 @@ se escreve depois — está em [CLAUDE.md](CLAUDE.md#testes).
 
 ---
 
-## Frontend — `frontend/`
-
-A unidade de organização é o **módulo**. As convenções — atomic design em quatro níveis,
-separação entre rota e tela, CSS Modules com tokens — estão em
-[CLAUDE.md](CLAUDE.md#convenções--frontend).
-
-```
-frontend/
-├── package.json                 scripts e dependências
-├── next.config.mjs              configuração do Next
-├── .env.example                 modelo de variáveis
-└── src/
-    ├── app/                     rotas (App Router)
-    ├── modules/                 um diretório por módulo, mais shared
-    ├── lib/                     infraestrutura transversal
-    ├── styles/                  tokens e estilos globais
-    └── types/                   tipos gerados do OpenAPI
-```
+## Frontend — o que falta
 
 ### `src/app/` — rotas
 
@@ -271,7 +315,6 @@ a composição ao componente de página do módulo.
 
 | Caminho | O que fará |
 |---|---|
-| `app/layout.tsx` | Layout raiz: fontes, providers e estilos globais. |
 | `app/(auth)/login/page.tsx` | Rota de login. |
 | `app/(app)/tickets/page.tsx` | Carrega os tickets visíveis ao usuário e delega para `TicketListPage`. |
 | `app/(app)/tickets/[id]/page.tsx` | Carrega o ticket e delega para `TicketDetailPage`. |
@@ -289,65 +332,34 @@ a composição ao componente de página do módulo.
 | `components/organisms/CommentThread/` | Lista de comentários, escondendo os internos do solicitante. |
 | `components/organisms/AssignmentPanel/` | Ações de atribuição, respeitando o que o usuário atual pode fazer. |
 | `components/molecules/SlaIndicator/` | Tempo restante do prazo, destacando o que estourou. |
-| `components/atoms/StatusBadge/` | Traduz status em rótulo e cor. |
-| `components/atoms/PriorityTag/` | Traduz prioridade em rótulo e cor. |
+| `components/atoms/StatusBadge/` | Traduz status em rótulo e cor (tokens `--color-status-*`). |
+| `components/atoms/PriorityTag/` | Traduz prioridade em rótulo e cor (tokens `--color-priority-*`). |
 | `actions/` | Server Actions de escrita: abrir, transicionar, comentar e atribuir. |
 | `services/` | Leitura da API de tickets, chamada a partir do servidor. |
 | `types/` | Tipos de UI do módulo. Os de contrato vêm de `src/types/api.d.ts`. |
 
 `modules/team/`, `modules/user/` e `modules/auth/` seguem a mesma forma interna.
 
-### `src/modules/shared/`
-
-Mesma estrutura interna dos demais módulos, para o que é usado por mais de um.
+### `src/modules/shared/` e `src/lib/`
 
 | Caminho | O que fará |
 |---|---|
-| `components/atoms/` | Primitivos: `Button`, `Input`, `Select`. |
-| `components/molecules/` | `Modal`, `Pagination`, `EmptyState`. |
-| `hooks/` | Hooks usados por mais de um módulo. |
-| `utils/` | Formatação de data, texto e número. |
-
-### `src/lib/`, `src/styles/` e `src/types/`
-
-| Caminho | O que fará |
-|---|---|
-| `lib/http/client.ts` | Cliente HTTP do lado servidor; anexa o token e traduz erro da API. |
+| `shared/components/atoms/` | Além do `Button`: `Input`, `Select`. |
+| `shared/components/molecules/` | `Modal`, `Pagination`, `EmptyState`. |
+| `shared/hooks/`, `shared/utils/` | O que atravessa módulos: formatação de data, texto e número. |
 | `lib/auth/session.ts` | Lê e valida a sessão a partir do cookie, para uso em Server Components. |
 | `lib/permissions.ts` | Espelha as regras de visibilidade **apenas** para mostrar ou esconder botões. A decisão real é sempre do backend. |
-| `styles/tokens.css` | Design tokens em custom properties. Todo `styles.module.css` consome daqui; valor solto é proibido. |
-| `styles/globals.css` | Reset e estilos de documento. |
-| `types/api.d.ts` | Tipos gerados do schema OpenAPI. Não edite à mão. |
 
----
-
-## E2E — `e2e/`
-
-Roda contra a stack completa subida pelo Docker Compose, não contra mocks.
+### E2E
 
 | Caminho | O que fará |
 |---|---|
-| `e2e/playwright.config.ts` | Aponta para a stack local, configura browsers, retries e trace em caso de falha. |
 | `e2e/specs/` | Um arquivo por fluxo de usuário (abrir chamado, atender, atribuir, resolver). |
 | `e2e/fixtures/` | Sessões pré-autenticadas por papel, para não repetir login em cada teste. |
 | `e2e/seed/` | Carga inicial de dados usada pelos cenários. |
 
----
-
-## Infraestrutura — `docker/`
+### Documentação
 
 | Caminho | O que fará |
 |---|---|
-| `docker/docker-compose.yml` | Sobe Postgres, backend e frontend para desenvolvimento local. |
-| `docker/backend.Dockerfile` | Build multi-stage do backend. |
-| `docker/frontend.Dockerfile` | Build do frontend em modo standalone. |
-
----
-
-## Documentação — `docs/`
-
-| Caminho | O que fará |
-|---|---|
-| `docs/adr/` | Registros de decisão de arquitetura, um arquivo por decisão. |
 | `docs/domain-model.md` | Diagrama de entidades e detalhamento das regras de atribuição. |
-| `docs/modules/` | Diagramas de módulo gerados pelo Spring Modulith. Saída de build, não escrita à mão. |

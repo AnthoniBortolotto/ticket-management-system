@@ -10,13 +10,17 @@ equipe, controle de visibilidade por papel e SLA calculado em horário comercial
 
 | Camada | Tecnologia |
 |---|---|
-| Backend | Java 25 + Spring Boot 4 (Web, Data JPA, Security, Validation) + Maven |
-| Modularidade | Spring Modulith — fronteiras entre módulos verificadas por teste |
+| Backend | Java 25 + Spring Boot 4.1 (WebMVC, Data JPA, Security, Validation) + Maven |
+| Modularidade | Spring Modulith 2.1 — fronteiras entre módulos verificadas por teste |
 | Banco | PostgreSQL 16 + Flyway (migrations versionadas) |
-| Frontend | Next.js 14+ (App Router) + TypeScript + React Server Components + CSS Modules |
+| Frontend | Next.js 16 (App Router) + React 19 + TypeScript 5.9 + CSS Modules |
 | Auth | JWT próprio no Spring Security, cookie `httpOnly` no Next.js |
-| Contrato | OpenAPI gerado pelo springdoc; tipos TS derivados do schema |
-| Infra local | Docker Compose (Postgres + backend + frontend) |
+| Contrato | OpenAPI gerado pelo springdoc 3.1; tipos TS derivados do schema |
+| Testes | JUnit 5 + Testcontainers, Vitest + Testing Library, Playwright |
+| Infra local | Docker Compose (Postgres + backend + frontend); `k8s/` para deploy |
+
+As versões e as armadilhas de compatibilidade que elas trazem estão em
+[docs/adr/0001-versoes-da-stack.md](docs/adr/0001-versoes-da-stack.md).
 
 ## Funcionalidades
 
@@ -92,11 +96,16 @@ definir). O relógio do SLA:
 ├── backend/          API REST em Spring Boot
 ├── frontend/         Aplicação Next.js
 ├── e2e/              Suíte Playwright, que roda contra a stack completa
-├── docker/           Compose e arquivos de infraestrutura local
-├── docs/             Documentação de arquitetura e decisões
+├── docker/           Compose e Dockerfiles do ambiente local
+├── k8s/              Manifests de deploy (demonstração; o dia a dia é o Compose)
+├── docs/             ADRs e diagramas de módulo gerados pelo build
 ├── CLAUDE.md         Instruções para agentes de IA que trabalham no repo
 └── CODEBASE-MAP.md   Mapa navegável do código — o que existe e onde
 ```
+
+> **Estado atual: esqueleto.** Build, testes, Docker e CI estão de pé; **nenhuma regra
+> de negócio foi implementada ainda** — não há entidade, migration, endpoint nem tela.
+> O que existe e o que falta está separado em [CODEBASE-MAP.md](CODEBASE-MAP.md).
 
 O backend organiza-se por feature (`ticket/`, `team/`, `sla/`), com a versão da API
 apenas na camada web. O frontend organiza-se por módulo, com atomic design dentro de
@@ -106,9 +115,17 @@ Para saber onde cada coisa mora, leia [CODEBASE-MAP.md](CODEBASE-MAP.md).
 
 ## Pré-requisitos
 
-- JDK 25
-- Node.js 20+ e pnpm (ou npm)
+- JDK 25 (o Maven vem pelo wrapper, `./mvnw`)
+- Node.js 24 e pnpm 9
 - Docker e Docker Compose
+- Opcional, só para os manifests de Kubernetes: `kind` e `kubectl`
+
+> **Rede com inspeção TLS.** Se `./mvnw` falhar com `PKIX path building failed`, um
+> antivírus ou proxy está interceptando HTTPS e a CA dele não está no truststore do JDK.
+> No Windows, contorne com
+> `export MAVEN_OPTS="-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT"`. Isso não resolve
+> `docker build`, que tem truststore próprio — nesse caso desligue a inspeção TLS do
+> antivírus.
 
 ## Como rodar
 
@@ -120,6 +137,11 @@ docker compose -f docker/docker-compose.yml up -d
 
 Backend em `http://localhost:8080`, frontend em `http://localhost:3000`,
 Postgres em `localhost:5432`.
+
+> ⚠️ **As imagens de backend e frontend ainda não foram construídas com sucesso.** Em
+> rede com inspeção TLS o build falha ao baixar dependências dentro do container (ver
+> os pré-requisitos acima). O caminho de desenvolvimento abaixo — banco no Docker,
+> aplicações na máquina — está validado e é o recomendado.
 
 ### Desenvolvimento local (hot reload)
 
@@ -136,19 +158,39 @@ cd backend && ./mvnw spring-boot:run
 cd frontend && pnpm install && pnpm dev
 ```
 
-## Variáveis de ambiente
+### Rodando em Kubernetes (opcional)
+
+Demonstração de deploy sobre as mesmas imagens do Compose. Não é o ambiente de
+desenvolvimento — o porquê está no
+[ADR 0002](docs/adr/0002-infra-local-compose-e-kubernetes.md).
 
 ```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
+kind create cluster --config k8s/kind-config.yaml
+docker compose -f docker/docker-compose.yml build
+kind load docker-image ticket-system/backend:local ticket-system/frontend:local --name ticket-system
+kubectl apply -k k8s/base
+```
+
+O Ingress espera o controller `ingress-nginx` instalado no cluster.
+
+## Variáveis de ambiente
+
+Nenhuma é obrigatória para desenvolver: `application.yml` e o Compose já trazem defaults
+que combinam entre si. Os arquivos de exemplo existem para quando você precisar mudar
+algo.
+
+```bash
+cp backend/.env.example backend/.env         # opcional; o Compose lê se existir
+cp frontend/.env.example frontend/.env.local # o Next lê .env.local nativamente
 ```
 
 | Variável | Onde | Descrição |
 |---|---|---|
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | backend | Conexão com o Postgres |
-| `JWT_SECRET` | backend | Chave de assinatura dos tokens (nunca commitar) |
-| `JWT_EXPIRATION_MINUTES` | backend | Tempo de vida do access token |
-| `API_BASE_URL` | frontend | URL do backend usada pelo servidor Next.js |
+| `SERVER_PORT`, `LOG_LEVEL` | backend | Porta e verbosidade |
+| `JWT_SECRET` | backend | Chave de assinatura dos tokens (nunca commitar). Ainda não lida — entra com o módulo `auth` |
+| `JWT_EXPIRATION_MINUTES` | backend | Tempo de vida do access token. Idem |
+| `API_BASE_URL` | frontend | URL do backend usada pelo servidor Next.js. Não é `NEXT_PUBLIC_`: o browser nunca fala com o backend direto |
 
 ## Testes
 
@@ -158,6 +200,7 @@ cd backend && ./mvnw verify                    # testes + cobertura JaCoCo
 cd backend && ./mvnw pitest:mutationCoverage   # mutation testing
 cd frontend && pnpm test                       # Vitest + Testing Library
 cd frontend && pnpm lint                       # ESLint
+cd frontend && pnpm typecheck                  # tsc --noEmit
 pnpm --dir e2e test                            # Playwright, com a stack de pé
 ```
 

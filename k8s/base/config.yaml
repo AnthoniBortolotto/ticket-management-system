@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ticket-config
+data:
+  DB_NAME: ticketsystem
+  DB_URL: jdbc:postgresql://postgres:5432/ticketsystem
+  API_BASE_URL: http://backend:8080
+  SERVER_PORT: "8080"
+---
+# Secret de desenvolvimento local. Em qualquer ambiente real isto sai daqui e vai para
+# um gerenciador de segredos — commitar credencial e o antipadrao que este comentario
+# existe para nao deixar passar despercebido.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ticket-secret
+type: Opaque
+stringData:
+  DB_USER: ticketsystem
+  DB_PASSWORD: ticketsystem
+  JWT_SECRET: troque-por-um-segredo-de-pelo-menos-32-bytes-em-base64

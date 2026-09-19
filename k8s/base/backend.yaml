@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: ticket-system/backend:local
+          # Imagem construida na maquina e carregada com `kind load docker-image`:
+          # sem isto o kubelet tenta puxar de um registry que nao existe.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef: { name: ticket-config }
+            - secretRef: { name: ticket-secret }
+          # As probes usam os endpoints do Actuator: liveness nao derruba o pod enquanto
+          # o Flyway ainda migra, porque quem responde por isso e a readiness.
+          startupProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080

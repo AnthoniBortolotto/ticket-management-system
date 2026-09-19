@@ -209,3 +209,21 @@ $RECYCLE.BIN/
 /frontend/out/
 /frontend/.next/
 next-env.d.ts
+
+# --- Saida de build fora de target/ ---
+# O Spring Modulith grava metadados aqui seguindo a convencao do Gradle, mesmo em Maven.
+/build/
+/backend/build/
+
+# Relatorios do PITest
+/backend/target/pit-reports/
+
+# --- Playwright ---
+/e2e/test-results/
+/e2e/playwright-report/
+/e2e/blob-report/
+/e2e/playwright/.cache/
+
+# --- Kubernetes ---
+# CA raiz local (rede com inspecao TLS); nunca versionar certificado de maquina.
+/k8s/**/*.local.yaml

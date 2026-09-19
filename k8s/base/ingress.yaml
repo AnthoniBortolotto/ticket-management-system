@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ticket-system
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          # O browser fala so com o frontend; /api existe para inspecionar a API e abrir
+          # o Swagger, nao porque a aplicacao precise dele exposto.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port: { number: 8080 }
+          - path: /swagger-ui
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port: { number: 8080 }
+          - path: /v3/api-docs
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port: { number: 8080 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port: { number: 3000 }

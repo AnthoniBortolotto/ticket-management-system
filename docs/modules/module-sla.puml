@@ -1,0 +1,27 @@
+@startuml
+title <size:24>Sla</size>
+
+set separator none
+top to bottom direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Component>
+
+System_Boundary("TicketSystemApplication_boundary", "TicketSystemApplication", $tags="") {
+  Container_Boundary("TicketSystemApplication.TicketSystemApplication_boundary", "TicketSystemApplication", $tags="") {
+    Component(TicketSystemApplication.TicketSystemApplication.Sla, "Sla", $techn="Module", $descr="", $tags="", $link="")
+  }
+
+}
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml

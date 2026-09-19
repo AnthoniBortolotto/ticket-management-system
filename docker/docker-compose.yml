@@ -1,0 +1,70 @@
+name: ticket-system
+
+# `up -d` sobe a stack completa (o que o E2E precisa).
+# `up -d postgres` sobe so o banco, para rodar backend e frontend na maquina com hot reload.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ticket-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ticketsystem}
+      POSTGRES_USER: ${DB_USER:-ticketsystem}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ticketsystem}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Sem isto o backend sobe antes do banco aceitar conexao e o Flyway falha no boot.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ticketsystem} -d ${DB_NAME:-ticketsystem}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    container_name: ticket-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-ticketsystem}
+      DB_USER: ${DB_USER:-ticketsystem}
+      DB_PASSWORD: ${DB_PASSWORD:-ticketsystem}
+      SERVER_PORT: 8080
+    env_file:
+      - path: ../backend/.env
+        required: false
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    container_name: ticket-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      # Nome de servico, nao localhost: quem chama a API e o servidor Next, dentro da rede.
+      API_BASE_URL: http://backend:8080
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    env_file:
+      - path: ../frontend/.env.local
+        required: false
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+volumes:
+  postgres-data:

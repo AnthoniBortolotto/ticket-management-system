@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.ticketsystem</groupId>
+  <artifactId>ticket-system</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>ticket-system</name>
+  <description>API do sistema de gerenciamento de tickets</description>
+
+  <properties>
+    <java.version>25</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <spring-modulith.version>2.1.1</spring-modulith.version>
+    <springdoc.version>3.1.1</springdoc.version>
+
+    <jacoco.version>0.8.15</jacoco.version>
+    <pitest.version>1.30.0</pitest.version>
+    <pitest-junit5.version>1.2.3</pitest-junit5.version>
+
+    <!-- Threshold de cobertura: vale apenas para domain e service (ver CLAUDE.md#testes). -->
+    <coverage.line.minimum>0.80</coverage.line.minimum>
+    <coverage.branch.minimum>0.75</coverage.branch.minimum>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.modulith</groupId>
+        <artifactId>spring-modulith-bom</artifactId>
+        <version>${spring-modulith.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- No Boot 4 o starter-web esta deprecado em favor do starter-webmvc. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
+    <!-- Fronteiras entre modulos, verificadas por teste. -->
+    <dependency>
+      <groupId>org.springframework.modulith</groupId>
+      <artifactId>spring-modulith-starter-core</artifactId>
+    </dependency>
+
+    <!-- Schema: uma unica linha de migrations, forward-only.
+
+         Tem que ser o starter do Boot, nao o flyway-core puro: no Boot 4 as
+         autoconfiguracoes sairam do spring-boot-autoconfigure para modulos por
+         tecnologia. Com so o flyway-core no classpath a aplicacao sobe normalmente,
+         nao loga nada e simplesmente nao migra — falha silenciosa. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Contrato: e daqui que saem os tipos TypeScript do frontend. -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+      <version>${springdoc.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-configuration-processor</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- Testes -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.modulith</groupId>
+      <artifactId>spring-modulith-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Gera os diagramas de modulo em docs/modules/ a partir do ModularityTest. -->
+    <dependency>
+      <groupId>org.springframework.modulith</groupId>
+      <artifactId>spring-modulith-docs</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Postgres real nos testes de integracao, nunca H2. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Testcontainers 2.x prefixa os modulos: era org.testcontainers:postgresql. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!-- Resolve o caminho do jar do Mockito para o argLine do surefire, logo abaixo. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>resolve-agent-paths</id>
+            <goals><goal>properties</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- `./mvnw test` roda unitarios e integracao: por isso *IT tambem entra no surefire. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- O Mockito precisa ser carregado como agente: o self-attach que ele usa
+               hoje emite aviso no JDK 25 e deixa de funcionar em JDKs futuros.
+               @{argLine} preserva o agente do JaCoCo, senao a cobertura zera. -->
+          <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/*Tests.java</include>
+            <include>**/*IT.java</include>
+          </includes>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+          <execution>
+            <id>check-domain-and-service</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <!-- Threshold global ensina a escrever teste falso para cobrir getter. -->
+              <includes>
+                <include>com/ticketsystem/*/domain/**/*.class</include>
+                <include>com/ticketsystem/*/service/**/*.class</include>
+              </includes>
+              <!-- `common` e `config` sao transversais, nao features. Cobrar 80% deles
+                   e o caminho mais curto para teste de getter, que e o que o threshold
+                   deveria evitar. O que eles tem de regra de verdade tem teste proprio. -->
+              <excludes>
+                <exclude>com/ticketsystem/common/**/*.class</exclude>
+                <exclude>com/ticketsystem/config/**/*.class</exclude>
+              </excludes>
+              <rules>
+                <rule>
+                  <!-- PACKAGE, nao BUNDLE: a regra so vale para os pacotes que existem,
+                       entao ela nasce verde e passa a cobrar a partir do primeiro
+                       domain/service. Tambem aponta o pacote culpado quando falha. -->
+                  <element>PACKAGE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${coverage.line.minimum}</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${coverage.branch.minimum}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Antidoto contra cobertura inflada. Roda sob demanda, fora do build. -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <version>${pitest.version}</version>
+        <configuration>
+          <!-- Sem isto o PITest copia o argLine do surefire e tenta abrir "{argLine}"
+               como arquivo: ele nao resolve a substituicao tardia @{...} do surefire.
+               Nao da para repassar aqui o agente do Mockito, porque a propriedade que
+               guarda o caminho do jar e criada pelo ciclo de vida do Maven e este goal
+               roda fora dele. Nos minions o Mockito volta a se auto-anexar e emite o
+               aviso do JDK 25 — no build de verdade (`verify`) o agente esta no lugar. -->
+          <parseSurefireConfig>false</parseSurefireConfig>
+          <targetClasses>
+            <param>com.ticketsystem.*.domain.*</param>
+            <param>com.ticketsystem.*.service.*</param>
+          </targetClasses>
+          <targetTests>
+            <param>com.ticketsystem.*</param>
+          </targetTests>
+          <outputFormats>
+            <param>HTML</param>
+            <param>XML</param>
+          </outputFormats>
+          <!-- Sem classes de dominio ainda; com a primeira feature isto vira true. -->
+          <failWhenNoMutations>false</failWhenNoMutations>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-junit5-plugin</artifactId>
+            <version>${pitest-junit5.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+    </plugins>
+  </build>
+</project>
