@@ -1,0 +1,17 @@
+# Perfil de desenvolvimento. `./mvnw spring-boot:run` o ativa sozinho — a configuracao
+# esta no spring-boot-maven-plugin do pom.xml.
+#
+# O que este perfil muda, e so ele: a carga de demonstracao entra no banco.
+spring:
+  flyway:
+    # A location de seed vem depois da de dominio. R__demo_users_and_teams.sql e
+    # repetivel, entao roda apos todas as versionadas, a cada vez que o arquivo muda.
+    #
+    # Em test e em producao esta linha nao existe e a lista fica so com db/migration.
+    locations: classpath:db/migration,classpath:db/seed
+    placeholders:
+      # Hash BCrypt de "demo123". Literal e sem variavel de ambiente porque este arquivo
+      # descreve um perfil que so existe na maquina de quem desenvolve, e o elenco que
+      # ele semeia tambem. O admin, que existe em todo ambiente, continua dependendo de
+      # ADMIN_PASSWORD_HASH.
+      demo_password_hash: $2a$10$qKPdARdr8P.zVL8vWjLuIuuVew89Vd38WEBlkyecf5FAmxBk.54IS

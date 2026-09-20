@@ -2,6 +2,13 @@ spring:
   application:
     name: ticket-system
 
+  # Le backend/.env se ele existir. O sufixo [.properties] e obrigatorio: sem ele o Boot
+  # nao sabe como interpretar um arquivo sem extensao e ignora o import em silencio.
+  # `optional:` mantem o boot funcionando onde as variaveis vem do ambiente (Compose,
+  # Kubernetes) em vez de arquivo.
+  config:
+    import: optional:file:.env[.properties]
+
   datasource:
     # Defaults casam com o servico postgres do docker/docker-compose.yml, entao
     # `./mvnw spring-boot:run` funciona sem nenhum .env depois de subir o banco.
@@ -19,7 +26,39 @@ spring:
 
   flyway:
     enabled: true
+    # So as migrations de dominio. O seed de demonstracao mora em classpath:db/seed e
+    # e o perfil dev que acrescenta aquela location.
     locations: classpath:db/migration
+    # O seed de demonstracao (db/seed) e uma migration repetivel que so o perfil dev
+    # carrega. Sem esta linha, subir a MESMA base sem o perfil dev quebra na validacao com
+    # "Detected applied migration not resolved locally" — e essa sequencia esta nos
+    # comandos do CLAUDE.md: desenvolve-se com `spring-boot:run` (dev) e roda-se o E2E com
+    # `docker compose up -d` (sem dev), os dois contra o mesmo volume do Postgres.
+    #
+    # O padrao ignora so repetivel ausente. Versionada ausente ou alterada continua
+    # derrubando o boot, que e o que protege a linha de migrations de dominio.
+    ignore-migration-patterns: "repeatable:missing"
+    placeholders:
+      # Alimentam V3__seed_admin_user.sql.
+      #
+      # ADMIN_PASSWORD_HASH nao tem default AQUI de proposito: um default no codigo da
+      # aplicacao valeria para todo ambiente, inclusive os que ninguem configurou.
+      #
+      # Seja honesto sobre o que isso protege: backend/.env.example e k8s/base/config.yaml
+      # trazem um hash de desenvolvimento publicado, entao quem segue o README acaba com
+      # admin/admin123 — de proposito, para o projeto rodar sem setup. O que esta
+      # regra garante e que um ambiente que NAO copiou nenhum desses arquivos nao sobe
+      # com um admin de senha conhecida: ele nao sobe, ponto.
+      #
+      # Cuidado ao mexer: se a variavel nao existir, o Spring NAO reclama — ele deixa
+      # `${ADMIN_PASSWORD_HASH}` como texto literal e o Flyway grava esse texto como se
+      # fosse a senha. Quem pega isso e o CHECK users_password_hash_is_bcrypt da V2, que
+      # recusa o INSERT e derruba o boot. Verificado rodando, nao deduzido.
+      #
+      # Para desenvolver: `cp backend/.env.example backend/.env`. O arquivo ja traz um
+      # hash de desenvolvimento e e lido pelo `spring.config.import` la em cima.
+      admin_email: ${ADMIN_EMAIL:admin@ticketsystem.local}
+      admin_password_hash: ${ADMIN_PASSWORD_HASH}
 
   modulith:
     events:

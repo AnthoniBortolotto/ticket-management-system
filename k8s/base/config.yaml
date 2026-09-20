@@ -20,3 +20,7 @@ stringData:
   DB_USER: ticketsystem
   DB_PASSWORD: ticketsystem
   JWT_SECRET: troque-por-um-segredo-de-pelo-menos-32-bytes-em-base64
+  # Hash BCrypt de "admin123". Sem esta chave o pod do backend nao sobe: a migration que
+  # semeia o administrador nao encontra o placeholder e o Flyway interrompe o boot.
+  # Proposital — ver o comentario do Secret acima.
+  ADMIN_PASSWORD_HASH: $2a$10$TqZk9EsL91XXwsirPJRFpugEf.AsiMXF2h.Pr1z1FQ4GjfCwiHpBC

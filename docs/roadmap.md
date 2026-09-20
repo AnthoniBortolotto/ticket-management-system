@@ -23,9 +23,10 @@ Estas saíram de discussão e não devem ser reabertas sem motivo novo.
 | Conclusão de evento | `archive` — o concluído sai da tabela ativa | `V1__create_event_publication.sql` |
 | Corpo de erro | `ProblemDetail` (RFC 9457), não formato próprio | Já implementado |
 | Validação de JWT | `spring-boot-starter-oauth2-resource-server` (Nimbus), não filtro escrito à mão | Fase 2 abaixo |
-| Primeiro usuário | Migration de seed, com dados de demonstração em location separada por perfil | Fase 1 abaixo |
+| Primeiro usuário | Migration de seed, com dados de demonstração em location separada, só no perfil `dev` | `V3__seed_admin_user.sql` |
+| Vínculo com equipe | Um usuário participa de várias equipes; UNIQUE no par | `V2__create_users_and_teams.sql` |
 | Infra local | Compose desenvolve, Kubernetes demonstra | [ADR 0002](adr/0002-infra-local-compose-e-kubernetes.md) |
-| Versões da stack | Ver tabela e as seis armadilhas | [ADR 0001](adr/0001-versoes-da-stack.md) |
+| Versões da stack | Ver a tabela e as armadilhas confirmadas | [ADR 0001](adr/0001-versoes-da-stack.md) |
 
 ## Premissas de produto
 
@@ -59,24 +60,38 @@ Itens pequenos que sobraram do setup e atrapalham se ficarem para depois.
 
 ## Fase 1 — Fundação de dados e de teste
 
-Nada nas fases seguintes é testável sem isto. É a fase que mais economiza tempo depois.
+**Concluída.** O que ela entregou está no [CODEBASE-MAP](../CODEBASE-MAP.md): as
+migrations `V2` e `V3`, a location de seed `db/seed/` e o `UsersAndTeamsSchemaIT`.
 
-- [ ] `V2__create_users_and_teams.sql`: `users`, `teams`, `team_memberships`. Papel
-      global no usuário, papel `MEMBER`/`LEAD` no vínculo.
-- [ ] Seed do admin em migration versionada, senha vinda de variável de ambiente — nunca
-      literal no SQL.
-- [ ] Seed de demonstração (equipes, agentes, solicitantes) em location Flyway separada,
-      ativada só nos perfis `dev` e `test` via `spring.flyway.locations`.
-- [ ] `support/UserBuilder`, `support/TeamBuilder`: montam o cenário em uma linha. Sem
-      eles, o setup de cada teste de visibilidade vira 40 linhas ilegíveis e as pessoas
-      param de escrever teste.
+Três decisões da fase mudaram o que estava escrito aqui:
+
+- **O seed de demonstração roda só em `dev`, não em `test`.** Os testes de visibilidade
+  afirmam o que alguém **não** enxerga; uma linha semeada que o teste não criou pode
+  fazer um deles passar por acidente. Em teste, cada teste monta o próprio cenário.
+- **Os builders subiram para as Fases 2 e 3.** `UserBuilder` e `TeamBuilder` montam
+  entidades, e `User` e `Team` só existem a partir da Fase 2 — um builder escrito antes
+  disso só saberia inserir SQL cru e seria reescrito. No lugar deles, a fase entregou o
+  teste de schema, que é o nível que o CLAUDE.md manda escrever antes da implementação.
+- **Um usuário participa de várias equipes.** O UNIQUE é sobre o par
+  `(user_id, team_id)`. É o que justifica existir uma tabela de vínculo em vez de uma
+  coluna em `users`, e faz a visibilidade falar em "as equipes do usuário", no plural.
+
+Uma armadilha confirmada rodando, que vale para qualquer placeholder de Flyway daqui
+para frente: **variável de ambiente ausente não gera erro no Spring.** O binder deixa
+`${VARIAVEL}` como texto literal e o Flyway grava esse texto no banco. Quem transforma
+isso em falha de boot é o CHECK `users_password_hash_is_bcrypt`, na `V2`. Configuração
+que pode não ser lida precisa de algo que prove que ela foi.
 
 ## Fase 2 — `user` e `auth`
 
 Identidade primeiro: toda regra de visibilidade depende de saber quem está pedindo.
 
 - [ ] `user/domain/`: `User`, `UserRole`, `UserRepository` (interface em linguagem de
-      negócio). `WorkSchedule` pode esperar a Fase 6.
+      negócio). `WorkSchedule` pode esperar a Fase 6. **As larguras de coluna da `V2` são
+      contrato:** repita-as em `@Column(length = ...)`. O `ddl-auto: validate` não pega
+      divergência de tamanho contra Postgres — quem cobra é o `INSERT`, em produção.
+- [ ] `support/UserBuilder`: monta o cenário em uma linha. Veio da Fase 1, junto da
+      entidade que ele constrói.
 - [ ] `user/infra/JpaUserRepository`: adapta Spring Data para a interface de domínio. O
       service nunca importa `org.springframework.data`.
 - [ ] `user/UserFacade`: consulta por id, para os outros módulos. **Anote o
@@ -101,6 +116,8 @@ Identidade primeiro: toda regra de visibilidade depende de saber quem está pedi
 `ticket` depende dele para decidir visibilidade, então vem antes.
 
 - [ ] `team/domain/`: `Team`, `TeamMembership`, `TeamMembershipRepository`.
+- [ ] `support/TeamBuilder`: idem, vindo da Fase 1. Precisa montar alguém em duas equipes
+      — é o caso que a Fase 5 vai exercitar.
 - [ ] `team/service/TeamService`: criar equipe, adicionar e remover membro, promover a
       `LEAD`.
 - [ ] `team/TeamFacade`: responde "é membro?" e "quem lidera?". É a única porta que
@@ -113,7 +130,7 @@ Identidade primeiro: toda regra de visibilidade depende de saber quem está pedi
 
 A maior fase. Vale quebrar em commits por sub-bloco.
 
-- [ ] `V3__create_tickets.sql`, com a **constraint que impede os dois modos de atribuição
+- [ ] `V4__create_tickets.sql`, com a **constraint que impede os dois modos de atribuição
       ao mesmo tempo**. A regra é do banco, não só do Java — e a constraint tem teste de
       integração próprio, escrito **antes**, porque só existe quando o Postgres executa.
 - [ ] `ticket/domain/TicketStatus`: o enum **e** as transições permitidas. TDD estrito:
@@ -152,7 +169,7 @@ vazamento de dados, não bug de tela.
 Os dois escutam eventos. `ticket` não sabe que eles existem, e é isso que faz notificação
 ser só mais um listener no futuro.
 
-- [ ] `V4__create_comments_and_audit.sql`, `V5__create_sla.sql`.
+- [ ] `V5__create_comments_and_audit.sql`, `V6__create_sla.sql`.
 - [ ] `audit/domain/AuditEvent` **append-only**: sem `update`, sem `delete`. O repositório
       não expõe esses métodos — a regra é estrutural, não de disciplina.
 - [ ] `audit/service/TicketEventListener` com `@ApplicationModuleListener`.

@@ -160,6 +160,14 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- `./mvnw spring-boot:run` sobe em dev, que e o unico perfil que carrega o
+               seed de demonstracao. O jar empacotado nao herda isto: la o perfil vem do
+               ambiente, e sem ele nao ha carga de demonstracao nenhuma. -->
+          <profiles>
+            <profile>dev</profile>
+          </profiles>
+        </configuration>
       </plugin>
 
       <!-- Resolve o caminho do jar do Mockito para o argLine do surefire, logo abaixo. -->

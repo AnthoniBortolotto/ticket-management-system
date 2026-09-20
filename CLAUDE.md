@@ -74,8 +74,8 @@ não apenas por validação em Java.
 |---|---|
 | `ADMIN` | Tudo. |
 | Solicitante | Sempre o próprio ticket, em qualquer modo. **Nunca** comentários internos. |
-| Membro da equipe | Tickets em modo equipe da sua equipe. |
-| Líder da equipe (`LEAD`) | Tudo da sua equipe, incluindo tickets que saíram dela para o modo exclusivo. |
+| Membro da equipe | Tickets em modo equipe de **qualquer equipe de que participe** — o vínculo é muitos-para-muitos. |
+| Líder da equipe (`LEAD`) | Tudo das equipes que lidera, incluindo tickets que saíram delas para o modo exclusivo. |
 | Responsável exclusivo | O ticket atribuído a ele. |
 
 Toda consulta que lista ou busca tickets **precisa** aplicar esse filtro na query, não
@@ -123,7 +123,9 @@ Router**; **Maven, não Gradle**.
 
 ### Armadilhas já confirmadas — não redescubra
 
-Estas seis custaram tempo no setup e continuam valendo. O detalhe está no ADR 0001.
+Estas custaram tempo e continuam valendo. As quatro de versão estão detalhadas no
+[ADR 0001](docs/adr/0001-versoes-da-stack.md#quatro-armadilhas-confirmadas-na-pratica);
+as demais vivem aqui e nos comentários do código que elas afetam.
 
 - **O Boot 4 usa Jackson 3 (`tools.jackson`), não Jackson 2.** Configuração escrita com
   `com.fasterxml.jackson.*` compila e não tem efeito nenhum. A flag
@@ -148,6 +150,13 @@ Estas seis custaram tempo no setup e continuam valendo. O detalhe está no ADR 0
 - **TypeScript fica na 5.9.** O `eslint-config-next` depende de `typescript-eslint@8`,
   cujo peer é `<6.1.0`. Subir para a 7 quebra o `pnpm lint`, e o CLAUDE.md proíbe
   desabilitar regra de lint para o código passar.
+- **Variável de ambiente ausente num placeholder de Flyway não dá erro.** Escrever
+  `placeholders.x: ${VAR}` sem default e não definir `VAR` **não** derruba o boot: o
+  binder do Spring deixa o texto `${VAR}` como valor, o Flyway o substitui no SQL e a
+  linha entra no banco com essa string. Foi assim que o admin quase nasceu com a senha
+  `${ADMIN_PASSWORD_HASH}`. A migration `V2` fecha esse buraco com um CHECK que exige
+  formato de hash em `password_hash`. Regra geral: **configuração que pode não ser lida
+  precisa de algo que prove que ela foi** — uma constraint, um log, uma asserção.
 
 ### Rede com inspeção TLS
 
@@ -306,8 +315,8 @@ separar entidade de domínio de entidade de persistência — mas só com motivo
 ## Comandos
 
 ```bash
-# Backend
-cd backend && ./mvnw spring-boot:run           # sobe a API
+# Backend  (antes da primeira execucao: cp backend/.env.example backend/.env)
+cd backend && ./mvnw spring-boot:run           # sobe a API no perfil `dev`, com a carga de demonstracao
 cd backend && ./mvnw test                      # unitários + integração
 cd backend && ./mvnw verify                    # testes + cobertura JaCoCo com threshold
 cd backend && ./mvnw pitest:mutationCoverage   # mutation testing (relatório em target/pit-reports)
@@ -389,6 +398,13 @@ de estado do sistema ficam no service.
 `backend/src/main/resources/db/migration`, nomeado `V{n}__descricao_em_snake_case.sql`.
 Nunca edite uma migration já commitada — crie a próxima. O `ddl-auto` fica em
 `validate`, nunca `update`.
+
+Dado que existe só para desenvolver não entra nessa linha: vai para
+`db/seed/`, como migration **repetível** (`R__`), e é o perfil `dev` que acrescenta a
+location. Repetível, e não versionada, porque um número de versão que só alguns bancos
+aplicam faz a próxima migration de domínio entrar fora de ordem nos demais — e o Flyway
+recusa isso por padrão. Sendo repetível, ela roda de novo a cada edição do arquivo:
+tudo ali precisa ser idempotente.
 
 **Datas e horas.** Persista tudo em UTC com `Instant`. Conversão para o fuso do usuário
 é responsabilidade do frontend. A única exceção é `WorkSchedule`, que guarda horário

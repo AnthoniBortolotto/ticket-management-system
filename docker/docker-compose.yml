@@ -36,8 +36,13 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-ticketsystem}
       SERVER_PORT: 8080
     env_file:
+      # required: true, e nao false: o backend precisa de ADMIN_PASSWORD_HASH para semear
+      # o administrador, e essa variavel so existe aqui. Com `false`, um checkout limpo
+      # subiria o container em loop de restart, falhando numa constraint de banco cujo
+      # texto nao diz nada sobre arquivo faltando. Assim o `up` para de imediato com
+      # "env file not found", que aponta para o passo do README que ficou para tras.
       - path: ../backend/.env
-        required: false
+        required: true
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     healthcheck:

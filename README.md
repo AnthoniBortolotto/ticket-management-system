@@ -103,9 +103,11 @@ definir). O relógio do SLA:
 └── CODEBASE-MAP.md   Mapa navegável do código — o que existe e onde
 ```
 
-> **Estado atual: esqueleto.** Build, testes, Docker e CI estão de pé; **nenhuma regra
-> de negócio foi implementada ainda** — não há entidade, migration, endpoint nem tela.
-> O que existe e o que falta está separado em [CODEBASE-MAP.md](CODEBASE-MAP.md).
+> **Estado atual: esqueleto com a fundação de dados pronta.** Build, testes e Docker
+> estão de pé, e o schema de usuários, equipes e vínculos já existe, com administrador
+> semeado e uma carga de demonstração para o perfil `dev`. **Ainda não há entidade Java,
+> endpoint nem tela.** O que existe e o que falta está separado em
+> [CODEBASE-MAP.md](CODEBASE-MAP.md).
 
 O backend organiza-se por feature (`ticket/`, `team/`, `sla/`), com a versão da API
 apenas na camada web. O frontend organiza-se por módulo, com atomic design dentro de
@@ -151,12 +153,32 @@ Suba só o banco e rode as aplicações na máquina:
 # 1. banco
 docker compose -f docker/docker-compose.yml up -d postgres
 
-# 2. backend (em outro terminal)
+# 2. variaveis do backend (uma vez)
+cp backend/.env.example backend/.env
+
+# 3. backend (em outro terminal) — sobe no perfil `dev`, que carrega a base de demonstracao
 cd backend && ./mvnw spring-boot:run
 
-# 3. frontend (em outro terminal)
+# 4. frontend (em outro terminal)
 cd frontend && pnpm install && pnpm dev
 ```
+
+#### Contas de demonstração
+
+O perfil `dev` semeia o elenco abaixo. Todas as contas de demonstração usam a senha
+`demo123`; o administrador usa a senha correspondente ao `ADMIN_PASSWORD_HASH` do seu
+`.env` (`admin123`, no exemplo). São credenciais públicas de brinquedo — em qualquer
+ambiente que não seja a sua máquina, gere outro hash.
+
+| Conta | Papel | Equipes |
+|---|---|---|
+| `admin@ticketsystem.local` | `ADMIN` | — |
+| `lead.suporte@ticketsystem.local` | `AGENT` | Suporte N1 (`LEAD`) |
+| `agente.suporte@ticketsystem.local` | `AGENT` | Suporte N1 (`MEMBER`) |
+| `lead.infra@ticketsystem.local` | `AGENT` | Infraestrutura (`LEAD`) |
+| `agente.infra@ticketsystem.local` | `AGENT` | Infraestrutura (`MEMBER`) |
+| `agente.polivalente@ticketsystem.local` | `AGENT` | Suporte N1 e Infraestrutura (`MEMBER`) |
+| `ana.solicitante@ticketsystem.local`, `bruno.solicitante@ticketsystem.local` | `REQUESTER` | — |
 
 ### Rodando em Kubernetes (opcional)
 
@@ -175,19 +197,31 @@ O Ingress espera o controller `ingress-nginx` instalado no cluster.
 
 ## Variáveis de ambiente
 
-Nenhuma é obrigatória para desenvolver: `application.yml` e o Compose já trazem defaults
-que combinam entre si. Os arquivos de exemplo existem para quando você precisar mudar
-algo.
+Só uma é obrigatória — `ADMIN_PASSWORD_HASH`, porque a migration que cria o primeiro
+administrador precisa de um hash e `application.yml` não traz default para ela. As demais
+têm defaults em `application.yml` e no Compose que combinam entre si.
+
+Para ser exato sobre o que isso protege: o `.env.example` e o Secret do Kubernetes **têm**
+um hash de desenvolvimento publicado, de propósito, para o projeto rodar sem setup. Quem
+segue este README termina com `admin` / `admin123`, e isso é conhecido. O que a ausência
+de default garante é que um ambiente que não copiou nenhum desses arquivos **não sobe**,
+em vez de subir com um administrador de senha pública sem ninguém perceber.
 
 ```bash
-cp backend/.env.example backend/.env         # opcional; o Compose lê se existir
-cp frontend/.env.example frontend/.env.local # o Next lê .env.local nativamente
+cp backend/.env.example backend/.env         # necessario; traz o ADMIN_PASSWORD_HASH de exemplo
+cp frontend/.env.example frontend/.env.local # o Next le .env.local nativamente
 ```
+
+Se o backend não subir com `violates check constraint "users_password_hash_is_bcrypt"`,
+é este arquivo que está faltando. A falha é proposital: sem ela, a aplicação subiria com
+um administrador cuja senha não é hash nenhum.
 
 | Variável | Onde | Descrição |
 |---|---|---|
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | backend | Conexão com o Postgres |
 | `SERVER_PORT`, `LOG_LEVEL` | backend | Porta e verbosidade |
+| `ADMIN_PASSWORD_HASH` | backend | **Obrigatória.** Hash BCrypt da senha do primeiro administrador. O SQL nunca vê senha em texto |
+| `ADMIN_EMAIL` | backend | E-mail desse administrador. Tem default. O nome não é variável: vai literal na migration, porque placeholder de Flyway não escapa nada |
 | `JWT_SECRET` | backend | Chave de assinatura dos tokens (nunca commitar). Ainda não lida — entra com o módulo `auth` |
 | `JWT_EXPIRATION_MINUTES` | backend | Tempo de vida do access token. Idem |
 | `API_BASE_URL` | frontend | URL do backend usada pelo servidor Next.js. Não é `NEXT_PUBLIC_`: o browser nunca fala com o backend direto |

@@ -20,7 +20,13 @@ import org.springframework.test.context.ActiveProfiles;
 @Inherited
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
-@SpringBootTest
+@SpringBootTest(
+        // Anula o `spring.config.import` do application.yml, que le o backend/.env. Sem
+        // isto a suite enxerga o arquivo de quem esta rodando, e o resultado passa a
+        // depender do que essa pessoa configurou na maquina dela. Hoje os valores que
+        // importam estao fixados em application-test.yml e venceriam assim mesmo; a
+        // questao e a proxima variavel que alguem adicionar sem esse cuidado.
+        properties = "spring.config.import=")
 @ActiveProfiles("test")
 @Import(PostgresContainer.class)
 public @interface IntegrationTest {

@@ -7,6 +7,18 @@ spring:
   flyway:
     enabled: true
     clean-disabled: false
+    # Sem a location de seed: em teste o banco tem o schema e o admin, e cada teste monta
+    # o proprio cenario. Os testes de visibilidade afirmam o que alguem NAO enxerga, e uma
+    # linha semeada que o teste nao criou pode fazer um deles passar por acidente.
+    locations: classpath:db/migration
+    placeholders:
+      # Valor fixo aqui, e nao herdado do ambiente: a suite nao pode depender de alguem
+      # ter copiado o backend/.env — e quem corta essa leitura de vez e o
+      # `spring.config.import=` vazio em support/IntegrationTest. Hash BCrypt de
+      # "admin123", a mesma senha que o README publica; UsersAndTeamsSchemaIT confere que
+      # o hash e a senha documentada continuam batendo.
+      admin_email: admin@ticketsystem.local
+      admin_password_hash: $2a$10$TqZk9EsL91XXwsirPJRFpugEf.AsiMXF2h.Pr1z1FQ4GjfCwiHpBC
 
 logging:
   level:

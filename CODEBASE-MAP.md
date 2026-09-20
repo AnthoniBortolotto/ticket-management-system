@@ -17,10 +17,11 @@ atualização estão em
 
 # Parte 1 — O que existe hoje
 
-**Estado do repositório: esqueleto de pé, sem domínio.** Backend compila, sobe e passa
-`./mvnw verify`; frontend passa `lint`, `typecheck`, `test` e `build`; a stack tem
-Compose e manifests de Kubernetes. **Nenhuma regra de negócio foi implementada** — não
-há entidade, migration, endpoint nem tela de ticket.
+**Estado do repositório: esqueleto de pé, com a fundação de dados no lugar.** Backend
+compila, sobe e passa `./mvnw verify`; frontend passa `lint`, `typecheck`, `test` e
+`build`; a stack tem Compose e manifests de Kubernetes. O schema de usuários, equipes e
+vínculos existe, com o administrador semeado. **Ainda não há entidade Java, endpoint nem
+tela** — nenhuma regra de negócio de ticket foi implementada.
 
 **Não há CI.** Toda verificação é manual: rode os comandos de
 [CLAUDE.md](CLAUDE.md#comandos) antes de commitar. Em particular, **as imagens Docker
@@ -47,9 +48,9 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 
 | Caminho | Status | O que faz |
 |---|---|---|
-| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith com registro de eventos em JPA, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Os comentários dele registram as armadilhas de versão. |
+| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith com registro de eventos em JPA, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Faz `spring-boot:run` subir no perfil `dev`. Os comentários dele registram as armadilhas de versão. |
 | `mvnw`, `mvnw.cmd`, `.mvn/wrapper/` | ✅ | Wrapper do Maven 3.9.12: o build funciona sem Maven instalado. |
-| `.env.example` | ✅ | Modelo das variáveis. Opcional para desenvolver — `application.yml` já tem defaults que apontam para o Postgres do Compose. |
+| `.env.example` | ✅ | Modelo das variáveis. **Copie para `backend/.env` antes da primeira execução:** `ADMIN_PASSWORD_HASH` não tem default e sem ela o boot para na migration de seed. As demais têm default apontando para o Postgres do Compose. |
 
 ### `src/main/java/com/ticketsystem/`
 
@@ -71,8 +72,12 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 
 | Caminho | Status | O que faz |
 |---|---|---|
-| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, modo `archive` para eventos concluídos, Jackson em UTC, virtual threads e probes do Actuator. |
+| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, modo `archive` para eventos concluídos, Jackson em UTC, virtual threads e probes do Actuator. Importa `backend/.env` se existir, define os placeholders do seed do admin e tolera a ausência do seed repetível, para a mesma base subir com e sem o perfil `dev`. |
+| `application-dev.yml` | ✅ | Acrescenta a location `db/seed` ao Flyway: é o único perfil que carrega a base de demonstração. `./mvnw spring-boot:run` ativa este perfil. |
 | `db/migration/V1__create_event_publication.sql` | ✅ | Tabelas do registro de publicação de eventos do Modulith, ativa e de arquivo. É o que garante reprocessamento de listener que falhou. O cabeçalho registra a questão de retenção de dado pessoal no arquivo. |
+| `db/migration/V2__create_users_and_teams.sql` | ✅ | Cria `users`, `teams` e `team_memberships`. Um usuário participa de várias equipes (UNIQUE no par); e-mail é guardado sempre em minúsculas, então o UNIQUE comum já resolve unicidade e login; nome de equipe é único por índice funcional, preservando a caixa digitada. Um CHECK exige BCrypt completo em `password_hash` — senha em texto, placeholder não substituído ou hash truncado não entram. |
+| `db/migration/V3__seed_admin_user.sql` | ✅ | Semeia o primeiro administrador com o hash vindo de `ADMIN_PASSWORD_HASH`. Sem a variável, o CHECK da V2 derruba o boot nesta migration. |
+| `db/seed/R__demo_users_and_teams.sql` | ✅ | Elenco de demonstração (duas equipes, líderes, agentes e solicitantes) fora da linha de migrations versionadas. Repetível e idempotente; só roda no perfil `dev`. |
 
 ### `src/test/`
 
@@ -81,12 +86,13 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `ModularityTest.java` | ✅ | Roda `ApplicationModules.verify()` e gera os diagramas em `docs/modules/`. |
 | `EventPublicationIT.java` | ✅ | Publica um evento numa transação e prova o caminho inteiro: gravado no registro, entregue ao listener assíncrono e movido para o arquivo ao concluir. |
 | `TicketSystemApplicationIT.java` | ✅ | Sobe o contexto inteiro contra um Postgres real e confirma que Flyway e JPA ligaram. |
+| `UsersAndTeamsSchemaIT.java` | ✅ | Fixa as regras de `users`, `teams` e `team_memberships` que só existem quando o Postgres executa: unicidade e normalização de e-mail, papéis dentro do enum, participação em várias equipes, cascata dos vínculos, os formatos de hash aceitos e recusados, e que o admin semeado autentica com a senha que o README publica. |
 | `config/JacksonConfigTest.java` | ✅ | Fixa a serialização de `Instant` como string ISO-8601 — o formato é contrato, não default de biblioteca. |
 | `common/domain/BaseEntityTest.java` | ✅ | A igualdade de entidade: duas instâncias sem id nunca são iguais, e o hash sobrevive à persistência. |
 | `common/error/GlobalExceptionHandlerTest.java` | ✅ | Fixa o contrato de erro com MockMvc: `ProblemDetail` em validação e em método não suportado, com os campos rejeitados ordenados. |
 | `support/PostgresContainer.java` | ✅ | Container Postgres 16 reaproveitado, ligado ao contexto por `@ServiceConnection`. |
-| `support/IntegrationTest.java` | ✅ | Anotação-base que junta `@SpringBootTest`, perfil de teste e o container. |
-| `resources/application-test.yml` | ✅ | Configuração dos testes. Sem datasource fixo: a URL vem do container. |
+| `support/IntegrationTest.java` | ✅ | Anotação-base que junta `@SpringBootTest`, perfil de teste e o container, e anula o import do `.env` para a suíte não enxergar a configuração da máquina de quem roda. |
+| `resources/application-test.yml` | ✅ | Configuração dos testes. Sem datasource fixo: a URL vem do container. Fixa os placeholders do seed do admin, para a suíte não depender de um `.env` na máquina, e deixa a location `db/seed` de fora. |
 
 ## Frontend — `frontend/`
 
@@ -176,6 +182,10 @@ o Compose está em [CLAUDE.md](CLAUDE.md#kubernetes-em-k8s).
 
 ## Índice rápido: onde vai ficar...
 
+Esta tabela é a exceção à separação das duas partes: ela aponta para onde cada assunto
+mora, exista o arquivo ou não. O ✅ marca o caminho que **já está no disco** — os demais
+ainda são planejados.
+
 | Quero... | Vai estar em |
 |---|---|
 | Mudar quem pode ver um ticket | `backend/.../ticket/service/TicketAccessPolicy.java` + `ticket/infra/TicketSpecifications.java` |
@@ -183,7 +193,8 @@ o Compose está em [CLAUDE.md](CLAUDE.md#kubernetes-em-k8s).
 | Mudar como o prazo de SLA é calculado | `backend/.../sla/service/SlaClock.java` |
 | Chamar um módulo a partir de outro | A fachada na raiz do módulo alvo (`ticket/TicketFacade.java`) — nunca uma classe interna |
 | Reagir a algo que aconteceu em outro módulo | Um `@ApplicationModuleListener` no seu próprio módulo |
-| Alterar o schema do banco | Nova migration em `backend/src/main/resources/db/migration/` |
+| Alterar o schema do banco | Nova migration em `backend/src/main/resources/db/migration/` ✅ |
+| Mudar o elenco de demonstração | `backend/src/main/resources/db/seed/` ✅ — só carrega no perfil `dev` |
 | Adicionar um endpoint | `backend/.../<feature>/web/v1/` e depois regenerar os tipos do frontend |
 | Trocar o armazenamento de um módulo | Novo adaptador em `backend/.../<feature>/infra/`; a interface fica em `domain/` |
 | Mudar login / emissão de token | `backend/.../auth/` e `frontend/src/lib/auth/` |
@@ -284,13 +295,12 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 
 | Caminho | O que fará |
 |---|---|
-| `V2__create_users_and_teams.sql` | Tabelas de usuário, equipe e vínculo. |
-| `V3__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
-| `V4__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
-| `V5__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
+| `V4__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
+| `V5__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
+| `V6__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
 
-A `V1` já existe e criou o registro de eventos do Modulith — migration é forward-only,
-então a numeração do domínio começa na `V2`.
+A numeração vai até a `V3`, na Parte 1. Migration é forward-only: o schema de tickets
+entra na `V4`, nunca editando as anteriores.
 
 Nomes sujeitos a ajuste conforme a implementação avança.
 
@@ -301,7 +311,7 @@ A estrutura espelha a de `main/`. A estratégia está em [CLAUDE.md](CLAUDE.md#t
 | Caminho | O que fará |
 |---|---|
 | `support/TicketBuilder.java` | Monta tickets para teste em uma linha, escondendo o setup de equipe, solicitante e SLA. |
-| `support/UserBuilder.java`, `support/TeamBuilder.java` | Mesmo papel para usuários, equipes e vínculos. |
+| `support/UserBuilder.java`, `support/TeamBuilder.java` | Mesmo papel para usuários, equipes e vínculos. Nascem junto das entidades `User` e `Team`, nas Fases 2 e 3 — um builder sem entidade só saberia inserir SQL cru. |
 | `ticket/service/` | Testes unitários das regras de transição, atribuição e acesso. |
 | `ticket/domain/TicketRepositoryContractTest.java` | Testes de contrato escritos contra a **interface** do repositório. Qualquer adaptador futuro roda esta mesma suíte sem reescrita. |
 | `ticket/infra/TicketSpecificationsIT.java` | **Escrito antes da implementação.** Verifica contra Postgres real que a listagem não devolve ticket que o usuário não pode ver. |
