@@ -47,7 +47,7 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 
 | Caminho | Status | O que faz |
 |---|---|---|
-| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Os comentários dele registram as armadilhas de versão. |
+| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith com registro de eventos em JPA, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Os comentários dele registram as armadilhas de versão. |
 | `mvnw`, `mvnw.cmd`, `.mvn/wrapper/` | ✅ | Wrapper do Maven 3.9.12: o build funciona sem Maven instalado. |
 | `.env.example` | ✅ | Modelo das variáveis. Opcional para desenvolver — `application.yml` já tem defaults que apontam para o Postgres do Compose. |
 
@@ -62,8 +62,8 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `config/OpenApiConfig.java` | ✅ | Metadados e esquema de segurança do schema em `/v3/api-docs`, de onde saem os tipos do frontend. |
 | `config/JpaConfig.java` | ✅ | Liga a auditoria do Spring Data que preenche `createdAt` e `updatedAt`. |
 | `common/package-info.java` | ✅ | Declara `common` como módulo aberto do Modulith. |
-| `common/error/ApiError.java` | ✅ | Corpo único de erro da API, com a lista de campos rejeitados na validação. |
-| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP. Hoje cobre validação e rota inexistente; cada módulo registra aqui as suas exceções. |
+| `common/error/FieldProblem.java` | ✅ | Um campo rejeitado pela validação e o motivo. Vai na propriedade `errors` do `ProblemDetail`. |
+| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP no formato `ProblemDetail` (RFC 9457). Herda de `ResponseEntityExceptionHandler`, então 404, 405 e 415 já saem padronizados; cada módulo registra aqui as suas exceções de domínio. |
 | `common/domain/BaseEntity.java` | ✅ | Id e carimbos de tempo em UTC, com igualdade por id. |
 | `auth/`, `user/`, `team/`, `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
 
@@ -71,17 +71,19 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 
 | Caminho | Status | O que faz |
 |---|---|---|
-| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, Jackson em UTC, virtual threads e probes do Actuator. |
-| `db/migration/` | 🚧 | Vazio. A primeira migration nasce com a primeira entidade. |
+| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, modo `archive` para eventos concluídos, Jackson em UTC, virtual threads e probes do Actuator. |
+| `db/migration/V1__create_event_publication.sql` | ✅ | Tabelas do registro de publicação de eventos do Modulith, ativa e de arquivo. É o que garante reprocessamento de listener que falhou. O cabeçalho registra a questão de retenção de dado pessoal no arquivo. |
 
 ### `src/test/`
 
 | Caminho | Status | O que faz |
 |---|---|---|
 | `ModularityTest.java` | ✅ | Roda `ApplicationModules.verify()` e gera os diagramas em `docs/modules/`. |
+| `EventPublicationIT.java` | ✅ | Publica um evento numa transação e prova o caminho inteiro: gravado no registro, entregue ao listener assíncrono e movido para o arquivo ao concluir. |
 | `TicketSystemApplicationIT.java` | ✅ | Sobe o contexto inteiro contra um Postgres real e confirma que Flyway e JPA ligaram. |
 | `config/JacksonConfigTest.java` | ✅ | Fixa a serialização de `Instant` como string ISO-8601 — o formato é contrato, não default de biblioteca. |
 | `common/domain/BaseEntityTest.java` | ✅ | A igualdade de entidade: duas instâncias sem id nunca são iguais, e o hash sobrevive à persistência. |
+| `common/error/GlobalExceptionHandlerTest.java` | ✅ | Fixa o contrato de erro com MockMvc: `ProblemDetail` em validação e em método não suportado, com os campos rejeitados ordenados. |
 | `support/PostgresContainer.java` | ✅ | Container Postgres 16 reaproveitado, ligado ao contexto por `@ServiceConnection`. |
 | `support/IntegrationTest.java` | ✅ | Anotação-base que junta `@SpringBootTest`, perfil de teste e o container. |
 | `resources/application-test.yml` | ✅ | Configuração dos testes. Sem datasource fixo: a URL vem do container. |
@@ -110,7 +112,7 @@ Organização por módulo, atomic design em quatro níveis dentro de cada um.
 | `styles/globals.css` | ✅ | Reset, estilos de documento e respeito a `prefers-reduced-motion`. |
 | `lib/http/client.ts` | ✅ | `fetch` tipado do lado servidor, com `server-only` para o build quebrar se um Client Component importar. |
 | `modules/shared/components/atoms/Button/` | ✅ | Primeiro atom, com teste. Serve de modelo da anatomia de componente: arquivo, teste, `styles.module.css` e `index.ts`. |
-| `modules/{ticket,team,user,auth}/`, `modules/shared/` | 🚧 | Diretórios criados na forma acordada (`components/{atoms,molecules,organisms,pages}`, `actions`, `services`, `hooks`, `utils`, `types`), ainda vazios. |
+| `modules/{ticket,team,user,auth}/` | — | **Não existem ainda.** Cada pasta nasce com o primeiro arquivo dela, na forma descrita na Parte 2 — não há diretório vazio reservando lugar. |
 | `types/api.d.ts` | ✅ | Tipos gerados do schema OpenAPI por `pnpm gen:api`. Hoje vazio porque não há endpoint; o pipeline foi validado de ponta a ponta. **Não edite à mão.** |
 
 ## E2E — `e2e/`
@@ -120,7 +122,6 @@ Organização por módulo, atomic design em quatro níveis dentro de cada um.
 | `package.json` | ✅ | Playwright 1.63 e os scripts da suíte. |
 | `playwright.config.ts` | ✅ | Aponta para a stack local, com trace, screenshot e vídeo retidos em falha. |
 | `specs/smoke.spec.ts` | ✅ | Confere que o frontend responde e que o backend está `UP`. Prova o harness; os fluxos reais vêm com as features. |
-| `fixtures/`, `seed/` | 🚧 | Vazios. Sessões por papel e carga inicial entram quando houver o que autenticar. |
 
 ## Infraestrutura — `docker/`
 
@@ -162,6 +163,7 @@ o Compose está em [CLAUDE.md](CLAUDE.md#kubernetes-em-k8s).
 |---|---|---|
 | `adr/0001-versoes-da-stack.md` | ✅ | As versões escolhidas, as quatro armadilhas confirmadas na prática e por que TypeScript e ESLint ficam atrás do `latest`. |
 | `adr/0002-infra-local-compose-e-kubernetes.md` | ✅ | Por que Compose desenvolve e Kubernetes demonstra, e o que mantém o `k8s/` honesto. |
+| `roadmap.md` | ✅ | O que falta para a aplicação completa, em fases ordenadas por dependência, com as premissas de produto assumidas e os riscos conhecidos. Item concluído sai dali e entra aqui. |
 | `modules/` | ✅ | Diagramas PlantUML e canvas por módulo. **Saída de build**: regerados a cada `./mvnw test`, nunca escritos à mão. |
 
 ---
@@ -282,11 +284,13 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 
 | Caminho | O que fará |
 |---|---|
-| `V1__create_users_and_teams.sql` | Tabelas de usuário, equipe e vínculo. |
-| `V2__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
-| `V3__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
-| `V4__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
-| `V5__create_event_publication.sql` | Tabela do registro de publicação de eventos do Spring Modulith, que garante reprocessamento de listener que falhou. Vem junto com a dependência `spring-modulith-starter-jpa`, que ainda não está no `pom.xml`. |
+| `V2__create_users_and_teams.sql` | Tabelas de usuário, equipe e vínculo. |
+| `V3__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
+| `V4__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
+| `V5__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
+
+A `V1` já existe e criou o registro de eventos do Modulith — migration é forward-only,
+então a numeração do domínio começa na `V2`.
 
 Nomes sujeitos a ajuste conforme a implementação avança.
 

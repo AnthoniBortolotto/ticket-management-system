@@ -49,11 +49,18 @@ Por isso `config/JacksonConfig.java` existe como classe: ele registra um
 é contrato publicado, `JacksonConfigTest` fixa a saída ISO-8601 em vez de confiar no
 default da biblioteca.
 
-Isso respinga na escolha futura da biblioteca de JWT: o `jjwt-jackson` depende de
-Jackson 2 e não existe variante para Jackson 3. Ao implementar o módulo `auth`, a
-decisão é entre `jjwt-gson`, conviver com os dois Jacksons no classpath, ou outra
-biblioteca. Nenhuma dependência de JWT foi adicionada ainda, justamente para não
-decidir isso sem necessidade.
+**Correção posterior, verificada com `dependency:tree`:** os dois Jacksons já convivem
+no projeto, e não por escolha nossa — o `springdoc-openapi` arrasta
+`com.fasterxml.jackson.core:jackson-databind` 2.21.5, porque o swagger-core é escrito
+sobre Jackson 2. Então "evitar uma segunda biblioteca de JSON" nunca foi uma opção
+disponível, e qualquer argumento que dependesse disso estava errado.
+
+O que continua valendo é a distinção que importa: **o `ObjectMapper` que serializa as
+respostas da API é o do Jackson 3.** Código de configuração escrito contra o Jackson 2
+compila e não faz nada.
+
+A escolha da biblioteca de JWT, por consequência, foi decidida por outro motivo —
+não escrever validação de token à mão. Ver o roadmap.
 
 **2. `spring-boot-starter-web` está deprecado no Boot 4**, em favor de
 `spring-boot-starter-webmvc`. O antigo ainda resolve, então o build não avisa. Usamos o

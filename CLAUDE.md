@@ -588,7 +588,10 @@ trabalho. Não commite `.env`, `target/`, `node_modules/` ou `.next/`.
 ## O que não fazer
 
 - Não crie arquivos de documentação avulsos. Documentação de estrutura vai no
-  `CODEBASE-MAP.md`; decisões de arquitetura vão em `docs/`.
+  `CODEBASE-MAP.md`; decisões de arquitetura vão em `docs/adr/`; o plano de trabalho vai
+  em `docs/roadmap.md`. **Esses três são os únicos destinos.** Se algo não couber em
+  nenhum, pergunte em vez de criar um arquivo novo — foi assim que o roadmap virou
+  destino oficial em vez de um `TODO.md` na raiz.
 - Não adicione dependência nova sem necessidade clara — cada uma é uma linha a
   justificar em uma entrevista.
 - Não desabilite regra de lint para fazer o código passar; corrija o código.
