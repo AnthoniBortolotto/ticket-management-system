@@ -68,10 +68,17 @@
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
 
-    <!-- Fronteiras entre modulos, verificadas por teste. -->
+    <!-- Fronteiras entre modulos, verificadas por teste, e o registro de publicacao de
+         eventos: o Modulith grava o evento na mesma transacao que salvou a entidade, e
+         reprocessa no proximo start o que o listener nao concluiu. E o que substitui um
+         message broker aqui.
+
+         O starter-jpa, e nao o starter-jdbc, porque a persistencia do projeto e JPA:
+         com `ddl-auto: validate` o Hibernate confere a tabela contra a entidade do
+         Modulith e o build quebra se uma versao futura mudar o schema por baixo. -->
     <dependency>
       <groupId>org.springframework.modulith</groupId>
-      <artifactId>spring-modulith-starter-core</artifactId>
+      <artifactId>spring-modulith-starter-jpa</artifactId>
     </dependency>
 
     <!-- Schema: uma unica linha de migrations, forward-only.

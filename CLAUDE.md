@@ -581,9 +581,26 @@ você mexeu.
 
 ## Git
 
-Commits em português, no imperativo, com escopo:
-`feat(ticket): adiciona transição para REOPENED`. Um commit por unidade lógica de
-trabalho. Não commite `.env`, `target/`, `node_modules/` ou `.next/`.
+Commits **em inglês**, no formato `TAG - descrição no imperativo`:
+
+```
+FEAT - add ticket transition to REOPENED
+```
+
+Tags em uso: `FEAT` (funcionalidade nova), `FIX` (correção de bug), `REFACTOR` (muda o
+código sem mudar comportamento), `TEST` (só testes), `SPECS` (documentação), `REMOVE`
+(remoção), `CHORE` (build, configuração, dependências).
+
+Um commit por unidade lógica de trabalho. O corpo — também em inglês — explica **por
+quê**, não o quê: o diff já mostra o que mudou, e é o motivo que se perde em seis meses.
+
+**A mensagem tem que se explicar sozinha.** Nada de número de RFC, de norma ou de
+sigla que obrigue quem lê a procurar fora do commit: escreva o que aquilo faz. "Every
+API failure now returns the same shape" serve; "adopt RFC 9457" não serve. Nome de
+classe ou de biblioteca que está no próprio diff pode — isso o leitor encontra ali
+mesmo. (Em ADR é o contrário: lá a citação da norma é o ponto.)
+
+Não commite `.env`, `target/`, `node_modules/` ou `.next/`.
 
 ## O que não fazer
 
