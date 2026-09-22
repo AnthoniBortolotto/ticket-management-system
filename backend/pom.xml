@@ -293,12 +293,28 @@
           <targetTests>
             <param>com.ticketsystem.*</param>
           </targetTests>
+          <!-- So os unitarios matam mutantes. Os *IT sobem Postgres pelo Testcontainers, e
+               o PITest roda cada mutacao numa JVM propria: com eles, uma rodada viraria
+               dezenas de subidas de container. O que os ITs provam — SQL, transacao,
+               cadeia de filtros — mora em infra/web/config, fora de targetClasses. -->
+          <excludedTestClasses>
+            <param>com.ticketsystem.*IT</param>
+          </excludedTestClasses>
+          <!-- A mesma politica do JaCoCo acima: `common` e `config` sao transversais, nao
+               features, e o filtro *.domain.* os pegaria por acidente (common.domain).
+               O que eles tem de regra de verdade tem teste proprio. -->
+          <excludedClasses>
+            <param>com.ticketsystem.common.*</param>
+            <param>com.ticketsystem.config.*</param>
+          </excludedClasses>
           <outputFormats>
             <param>HTML</param>
             <param>XML</param>
           </outputFormats>
-          <!-- Sem classes de dominio ainda; com a primeira feature isto vira true. -->
-          <failWhenNoMutations>false</failWhenNoMutations>
+          <!-- true desde a Fase 2: se um dia nenhuma mutacao for gerada, e porque o filtro
+               de targetClasses parou de casar com o codigo — e isso precisa quebrar, nao
+               passar verde com 0 de 0. -->
+          <failWhenNoMutations>true</failWhenNoMutations>
         </configuration>
         <dependencies>
           <dependency>

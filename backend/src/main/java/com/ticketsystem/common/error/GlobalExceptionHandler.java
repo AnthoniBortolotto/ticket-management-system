@@ -24,8 +24,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * linha de codigo nossa.
  *
  * <p>Controller nao monta {@code ResponseEntity} com status na mao: ele lanca excecao de
- * dominio e o mapeamento para status vive aqui. Cada modulo novo registra aqui as suas
- * excecoes com {@code @ExceptionHandler}, e so aqui.
+ * dominio e o mapeamento para status vive aqui.
+ *
+ * <p><strong>Modulo novo nao acrescenta {@code @ExceptionHandler} aqui.</strong> A excecao
+ * dele estende {@link DomainException} e declara um {@link ProblemKind}, e o handler
+ * generico abaixo ja a traduz. Um handler por excecao obrigaria {@code common} a importar
+ * o modulo, que ja depende de {@code common}: ciclo, e o {@code ModularityTest} quebra o
+ * build.
  */
 @RestControllerAdvice
 class GlobalExceptionHandler extends ResponseEntityExceptionHandler {

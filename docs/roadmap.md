@@ -22,7 +22,8 @@ Estas saíram de discussão e não devem ser reabertas sem motivo novo.
 |---|---|---|
 | Conclusão de evento | `archive` — o concluído sai da tabela ativa | `V1__create_event_publication.sql` |
 | Corpo de erro | `ProblemDetail` (RFC 9457), não formato próprio | Já implementado |
-| Validação de JWT | `spring-boot-starter-oauth2-resource-server` (Nimbus), não filtro escrito à mão | Fase 2 abaixo |
+| Autenticação | JWT HS256 só com `sub` e `role`; refresh opaco em banco, com rotação; bloqueio por conta | [ADR 0003](adr/0003-autenticacao-jwt.md) |
+| Formato de erro por módulo | Exceção estende `DomainException` com um `ProblemKind`; nenhum módulo registra `@ExceptionHandler` próprio | `common/error/` |
 | Primeiro usuário | Migration de seed, com dados de demonstração em location separada, só no perfil `dev` | `V3__seed_admin_user.sql` |
 | Vínculo com equipe | Um usuário participa de várias equipes; UNIQUE no par | `V2__create_users_and_teams.sql` |
 | Infra local | Compose desenvolve, Kubernetes demonstra | [ADR 0002](adr/0002-infra-local-compose-e-kubernetes.md) |
@@ -84,32 +85,35 @@ que pode não ser lida precisa de algo que prove que ela foi.
 
 ## Fase 2 — `user` e `auth`
 
-Identidade primeiro: toda regra de visibilidade depende de saber quem está pedindo.
+**Concluída.** O que ela entregou está no [CODEBASE-MAP](../CODEBASE-MAP.md) e as decisões
+de autenticação no [ADR 0003](adr/0003-autenticacao-jwt.md).
 
-- [ ] `user/domain/`: `User`, `UserRole`, `UserRepository` (interface em linguagem de
-      negócio). `WorkSchedule` pode esperar a Fase 6. **As larguras de coluna da `V2` são
-      contrato:** repita-as em `@Column(length = ...)`. O `ddl-auto: validate` não pega
-      divergência de tamanho contra Postgres — quem cobra é o `INSERT`, em produção.
-- [ ] `support/UserBuilder`: monta o cenário em uma linha. Veio da Fase 1, junto da
-      entidade que ele constrói.
-- [ ] `user/infra/JpaUserRepository`: adapta Spring Data para a interface de domínio. O
-      service nunca importa `org.springframework.data`.
-- [ ] `user/UserFacade`: consulta por id, para os outros módulos. **Anote o
-      `package-info.java` com `@ApplicationModule` agora** — só funciona com a primeira
-      classe no pacote.
-- [ ] `auth`: `AuthService` confere credenciais; emissão do token com `JwtEncoder`
-      (chave RSA ou HMAC vinda de configuração). Claims: subject, papel, equipes.
-- [ ] `SecurityConfig`: trocar o "nega tudo" por `oauth2ResourceServer(jwt)`, mapeando os
-      claims para authorities. `/api/v1/auth/login` fica público.
-- [ ] `auth/web/v1/AuthController`: login e refresh.
-- [ ] **Testes de segurança que não podem faltar:** token expirado → 401; assinatura
-      inválida → 401; token sem o papel exigido → 403; rota pública sem token → 200.
-- [ ] Proteção contra força bruta no login: hoje `/api/v1/auth/login` aceitaria
-      tentativas ilimitadas. Decidir entre bloqueio por tentativas na conta ou limite por
-      IP — e testar que o bloqueio dispara.
-- [ ] Decidir se `/swagger-ui` e `/v3/api-docs` continuam públicos. Hoje estão, e num
-      projeto de portfólio isso é proposital; a alternativa é restringi-los fora do
-      perfil de desenvolvimento. É uma decisão, não um esquecimento — registre qual.
+O que mudou em relação ao que estava escrito aqui:
+
+- **O token não carrega as equipes**, ao contrário do que este item previa. O conteúdo de
+  um JWT só muda quando ele expira: com as equipes no token, tirar alguém de uma equipe
+  continuaria dando acesso aos tickets dela até o vencimento. As equipes são resolvidas
+  por requisição, via `TeamFacade` — **a Fase 5 depende disto e não pode ler equipe do
+  token**.
+- **`UserRole` mora na raiz de `user/`, e não em `user/domain/`.** `auth` precisa do tipo
+  para montar o claim, e tipo em subpacote é interno: o `ModularityTest` quebraria o build.
+- **Força bruta:** bloqueio por conta, persistido, com 423. **Swagger:** continua público,
+  por decisão registrada no ADR e fixada em teste.
+- **`AuthFacade` e `CurrentUser` foram para a Fase 3.** Nenhum código desta fase os usa;
+  entram com o primeiro consumidor, em vez de nascerem sem uso e sem teste.
+- **Erro de módulo:** exceções de domínio estendem `DomainException` e declaram um
+  `ProblemKind`. O jeito anterior — cada módulo registrar `@ExceptionHandler` no advice
+  global — faria `common` importar os módulos, que já dependem de `common`: ciclo, e o
+  `ModularityTest` quebra o build.
+
+Armadilhas confirmadas rodando, que valem daqui para frente:
+
+- **Duas proteções de segurança dependem de transação e quebram em silêncio.** A falha
+  contada no login e a revogação num replay acontecem logo antes de uma exceção; numa
+  transação só, o rollback desfaria as duas com a suíte verde. Por isso o `AuthService`
+  não tem `@Transactional` — não acrescente.
+- **O BCrypt limita a senha a 72 _bytes_**, e o encoder lança exceção acima disso. Um
+  `@Size` conta caracteres: 40 letras acentuadas passariam e dariam 500.
 
 ## Fase 3 — `team`
 
@@ -122,6 +126,9 @@ Identidade primeiro: toda regra de visibilidade depende de saber quem está pedi
       `LEAD`.
 - [ ] `team/TeamFacade`: responde "é membro?" e "quem lidera?". É a única porta que
       `ticket` enxerga.
+- [ ] `auth/AuthFacade` + `auth/CurrentUser`: quem está pedindo, lido do token. Veio da
+      Fase 2 — entra aqui porque o `TeamController` é o primeiro que precisa saber se quem
+      pede lidera a equipe.
 - [ ] `team/web/v1/TeamController` + DTOs `record`.
 - [ ] Teste de integração do caso negativo: quem não é admin nem `LEAD` não gerencia
       membros.
@@ -130,7 +137,7 @@ Identidade primeiro: toda regra de visibilidade depende de saber quem está pedi
 
 A maior fase. Vale quebrar em commits por sub-bloco.
 
-- [ ] `V4__create_tickets.sql`, com a **constraint que impede os dois modos de atribuição
+- [ ] `V5__create_tickets.sql`, com a **constraint que impede os dois modos de atribuição
       ao mesmo tempo**. A regra é do banco, não só do Java — e a constraint tem teste de
       integração próprio, escrito **antes**, porque só existe quando o Postgres executa.
 - [ ] `ticket/domain/TicketStatus`: o enum **e** as transições permitidas. TDD estrito:
@@ -169,7 +176,7 @@ vazamento de dados, não bug de tela.
 Os dois escutam eventos. `ticket` não sabe que eles existem, e é isso que faz notificação
 ser só mais um listener no futuro.
 
-- [ ] `V5__create_comments_and_audit.sql`, `V6__create_sla.sql`.
+- [ ] `V6__create_comments_and_audit.sql`, `V7__create_sla.sql`.
 - [ ] `audit/domain/AuditEvent` **append-only**: sem `update`, sem `delete`. O repositório
       não expõe esses métodos — a regra é estrutural, não de disciplina.
 - [ ] `audit/service/TicketEventListener` com `@ApplicationModuleListener`.
@@ -250,6 +257,13 @@ não deve impedi-los, mas eles **não entram**. Se parecerem necessários, pergu
 - **Não há CI.** A disciplina de rodar tudo antes de commitar é a única proteção.
 - **As imagens Docker nunca foram construídas.** Podem conter erros que só aparecem na
   primeira tentativa real.
+- **Bloqueio por conta é vetor de negação de serviço.** Quem souber o e-mail de alguém o
+  mantém bloqueado errando a senha, e o e-mail do admin está no README. A janela curta,
+  que vence sozinha, limita o estrago; limite por IP no ingress é o complemento. Ver
+  [ADR 0003](adr/0003-autenticacao-jwt.md).
+- **`refresh_tokens` cresce sem limite** e guarda sessões expiradas. Sem expurgo ainda; a
+  consulta está anotada no cabeçalho da `V4`. Decidir junto com o expurgo do arquivo de
+  eventos abaixo.
 - **`event_publication_archive` cresce sem limite e guarda o evento serializado.**
   Enquanto os eventos carregarem só identificadores, é questão de disco. No dia em que
   um deles levar nome ou e-mail, vira armazenamento indefinido de dado pessoal fora das

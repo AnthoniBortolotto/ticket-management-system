@@ -7,6 +7,12 @@ data:
   DB_URL: jdbc:postgresql://postgres:5432/ticketsystem
   API_BASE_URL: http://backend:8080
   SERVER_PORT: "8080"
+  # Configuracao do login. Nao e segredo: validades e limites de bloqueio.
+  JWT_ISSUER: ticket-system
+  JWT_EXPIRATION_MINUTES: "60"
+  JWT_REFRESH_DAYS: "7"
+  LOGIN_MAX_FAILED_ATTEMPTS: "5"
+  LOGIN_LOCK_MINUTES: "15"
 ---
 # Secret de desenvolvimento local. Em qualquer ambiente real isto sai daqui e vai para
 # um gerenciador de segredos — commitar credencial e o antipadrao que este comentario
@@ -19,8 +25,9 @@ type: Opaque
 stringData:
   DB_USER: ticketsystem
   DB_PASSWORD: ticketsystem
-  JWT_SECRET: troque-por-um-segredo-de-pelo-menos-32-bytes-em-base64
-  # Hash BCrypt de "admin123". Sem esta chave o pod do backend nao sobe: a migration que
-  # semeia o administrador nao encontra o placeholder e o Flyway interrompe o boot.
-  # Proposital — ver o comentario do Secret acima.
+  # Lida como texto, nao como base64; o boot recusa menos de 32 bytes.
+  JWT_SECRET: troque-este-segredo-de-desenvolvimento-por-um-seu
+  # Hash BCrypt de "admin123". Sem esta chave o pod do backend nao sobe: o Spring deixa o
+  # placeholder como texto, a migration tenta gravar esse texto como senha e o CHECK de
+  # BCrypt da V2 recusa. Proposital — ver o comentario do Secret acima.
   ADMIN_PASSWORD_HASH: $2a$10$TqZk9EsL91XXwsirPJRFpugEf.AsiMXF2h.Pr1z1FQ4GjfCwiHpBC

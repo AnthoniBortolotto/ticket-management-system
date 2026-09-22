@@ -150,6 +150,12 @@ as demais vivem aqui e nos comentários do código que elas afetam.
 - **TypeScript fica na 5.9.** O `eslint-config-next` depende de `typescript-eslint@8`,
   cujo peer é `<6.1.0`. Subir para a 7 quebra o `pnpm lint`, e o CLAUDE.md proíbe
   desabilitar regra de lint para o código passar.
+- **Mais duas renomeações do Boot 4, que o build não acusa.** O resource server é
+  `spring-boot-starter-security-oauth2-resource-server` — o nome antigo, sem `security-`,
+  está deprecado e ainda resolve. E o `@AutoConfigureMockMvc` saiu de
+  `spring-boot-test-autoconfigure` para `spring-boot-webmvc-test`, que não está no
+  `pom.xml`: para testar a cadeia de segurança, use `support/SecureMockMvc`, que monta o
+  `MockMvc` a partir do contexto sem dependência nova.
 - **Variável de ambiente ausente num placeholder de Flyway não dá erro.** Escrever
   `placeholders.x: ${VAR}` sem default e não definir `VAR` **não** derruba o boot: o
   binder do Spring deixa o texto `${VAR}` como valor, o Flyway o substitui no SQL e a
@@ -393,6 +399,13 @@ de estado do sistema ficam no service.
 **Erros.** Lance exceções de domínio específicas (`TicketNotFoundException`,
 `ForbiddenAssignmentException`) e traduza para HTTP em um `@RestControllerAdvice`
 único. Nunca monte `ResponseEntity` com status na mão dentro do controller.
+
+A exceção **estende `common/error/DomainException` e declara um `ProblemKind`** — o
+tipo de problema, não o número HTTP. O advice global traduz todas por esse tipo. **Não
+acrescente `@ExceptionHandler` no advice para a exceção de um módulo:** isso obrigaria
+`common` a importar o módulo, que já depende de `common` — ciclo, e o `ModularityTest`
+quebra o build. O `title` e o `detail` vão no corpo da resposta: nunca ponha ali nome de
+classe, mensagem de biblioteca ou o identificador que a pessoa tentou.
 
 **Migrations.** Todo schema muda via Flyway em
 `backend/src/main/resources/db/migration`, nomeado `V{n}__descricao_em_snake_case.sql`.

@@ -17,11 +17,11 @@ atualização estão em
 
 # Parte 1 — O que existe hoje
 
-**Estado do repositório: esqueleto de pé, com a fundação de dados no lugar.** Backend
-compila, sobe e passa `./mvnw verify`; frontend passa `lint`, `typecheck`, `test` e
-`build`; a stack tem Compose e manifests de Kubernetes. O schema de usuários, equipes e
-vínculos existe, com o administrador semeado. **Ainda não há entidade Java, endpoint nem
-tela** — nenhuma regra de negócio de ticket foi implementada.
+**Estado do repositório: identidade e autenticação prontas; domínio de tickets ainda
+não.** Backend compila, sobe e passa `./mvnw verify`; frontend passa `lint`, `typecheck`,
+`test` e `build`; a stack tem Compose e manifests de Kubernetes. Existem os módulos `user`
+e `auth` completos — login com JWT, sessão revogável e bloqueio por força bruta — e o
+schema de equipes. **Ainda não há código de equipe, de ticket nem tela.**
 
 **Não há CI.** Toda verificação é manual: rode os comandos de
 [CLAUDE.md](CLAUDE.md#comandos) antes de commitar. Em particular, **as imagens Docker
@@ -48,9 +48,9 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 
 | Caminho | Status | O que faz |
 |---|---|---|
-| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith com registro de eventos em JPA, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Faz `spring-boot:run` subir no perfil `dev`. Os comentários dele registram as armadilhas de versão. |
+| `pom.xml` | ✅ | Boot 4.1.1 sobre Java 25, Modulith com registro de eventos em JPA, resource server do Spring Security para o JWT, springdoc, Flyway, Testcontainers, JaCoCo com threshold em domain/service e PITest. Faz `spring-boot:run` subir no perfil `dev`. Os comentários dele registram as armadilhas de versão. |
 | `mvnw`, `mvnw.cmd`, `.mvn/wrapper/` | ✅ | Wrapper do Maven 3.9.12: o build funciona sem Maven instalado. |
-| `.env.example` | ✅ | Modelo das variáveis. **Copie para `backend/.env` antes da primeira execução:** `ADMIN_PASSWORD_HASH` não tem default e sem ela o boot para na migration de seed. As demais têm default apontando para o Postgres do Compose. |
+| `.env.example` | ✅ | Modelo das variáveis. **Copie para `backend/.env` antes da primeira execução:** `ADMIN_PASSWORD_HASH` e `JWT_SECRET` não têm default, e sem elas o boot para. As demais têm default apontando para o Postgres do Compose. |
 
 ### `src/main/java/com/ticketsystem/`
 
@@ -58,25 +58,53 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 |---|---|---|
 | `TicketSystemApplication.java` | ✅ | Entrypoint do Spring Boot. |
 | `config/package-info.java` | ✅ | Declara `config` como módulo aberto do Modulith. |
-| `config/SecurityConfig.java` | ✅ | Cadeia de filtros stateless: libera health e a documentação do contrato, exige autenticação no resto. Sem mecanismo de login ainda — nega por padrão. |
+| `config/SecurityConfig.java` | ✅ | Cadeia de filtros stateless: valida o bearer token em cada requisição, libera health, documentação e os três endpoints de sessão (um a um, nunca por curinga), exige `ADMIN` em `/api/v1/users` e nega o resto. Devolve 401/403 ao advice, para saírem em `ProblemDetail`. Declara o `PasswordEncoder` — BCrypt puro, por causa do CHECK da V2. |
+| `config/TimeConfig.java` | ✅ | Publica o `Clock` em UTC, para expiração e bloqueio serem testáveis sem dormir. |
 | `config/JacksonConfig.java` | ✅ | Força data em ISO-8601. Existe como classe porque no Jackson 3 a flag mudou de enum e o Boot 4 não expõe propriedade para ela. |
 | `config/OpenApiConfig.java` | ✅ | Metadados e esquema de segurança do schema em `/v3/api-docs`, de onde saem os tipos do frontend. |
 | `config/JpaConfig.java` | ✅ | Liga a auditoria do Spring Data que preenche `createdAt` e `updatedAt`. |
 | `common/package-info.java` | ✅ | Declara `common` como módulo aberto do Modulith. |
 | `common/error/FieldProblem.java` | ✅ | Um campo rejeitado pela validação e o motivo. Vai na propriedade `errors` do `ProblemDetail`. |
-| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP no formato `ProblemDetail` (RFC 9457). Herda de `ResponseEntityExceptionHandler`, então 404, 405 e 415 já saem padronizados; cada módulo registra aqui as suas exceções de domínio. |
+| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP no formato `ProblemDetail` (RFC 9457). Herda de `ResponseEntityExceptionHandler`, então 404, 405 e 415 já saem padronizados; traduz qualquer `DomainException` pelo `ProblemKind`, e 401/403 do Spring Security sem vazar a mensagem interna. |
+| `common/error/ProblemKind.java` | ✅ | Que tipo de problema aconteceu — inválido, não autenticado, proibido, não encontrado, conflito, bloqueado — e o status HTTP de cada um. |
+| `common/error/DomainException.java` | ✅ | Base das exceções de todos os módulos. É o que deixa o advice único sem `common` importar módulo nenhum: o import inverso fecharia ciclo. |
 | `common/domain/BaseEntity.java` | ✅ | Id e carimbos de tempo em UTC, com igualdade por id. |
-| `auth/`, `user/`, `team/`, `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
+| `team/`, `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
+| `user/package-info.java` | ✅ | Declara o módulo `user` e registra que o hash de senha não sai dele. |
+| `user/UserRole.java` | ✅ | Papel global `REQUESTER`, `AGENT`, `ADMIN`. Na raiz, e não em `domain/`: `auth` precisa dele para o claim do token, e subpacote é interno. |
+| `user/UserAccount.java` | ✅ | O que os outros módulos podem saber de um usuário: id, e-mail, nome e papel — nunca o hash. |
+| `user/UserFacade.java` | ✅ | Única porta do módulo: confere credencial, busca por e-mail e por id. |
+| `user/domain/User.java` | ✅ | Entidade do usuário. Normaliza o e-mail em minúsculas sem depender do idioma da máquina e esconde o hash do `toString`. |
+| `user/domain/UserRepository.java` | ✅ | Porta de persistência em linguagem de negócio. A busca por e-mail ignora a caixa. |
+| `user/service/UserService.java` | ✅ | Único lugar que toca no `PasswordEncoder`. Confere senha — contra hash descartável quando o e-mail não existe, para o tempo não enumerar contas — e cria usuário recusando senha acima de 72 bytes. |
+| `user/service/*Exception.java` | ✅ | `EmailAlreadyUsed` (409), `UserNotFound` (404) e `PasswordTooLong` (400). |
+| `user/infra/SpringDataUserRepository.java`, `JpaUserRepository.java` | ✅ | Spring Data e o adaptador que o traduz para a porta de domínio. |
+| `user/web/v1/UserController.java` + `dto/` | ✅ | `POST /api/v1/users` e `GET /api/v1/users/{id}`, só para admin. Versão mínima: a listagem paginada espera a decisão de paginação da Fase 4. |
+| `auth/package-info.java` | ✅ | Declara o módulo `auth` e registra por que o token não carrega equipes. |
+| `auth/domain/LockoutPolicy.java` | ✅ | Quantas falhas seguidas bloqueiam a conta e por quanto tempo. Regra pura, com o instante vindo de fora. |
+| `auth/domain/LoginLockout.java`, `LoginLockoutRepository.java` | ✅ | O estado de falhas de uma conta e a porta de escrita atômica. Não é entidade JPA, de propósito. |
+| `auth/domain/RefreshToken.java`, `RevocationReason.java`, `RefreshTokenRepository.java` | ✅ | Sessão renovável guardada pelo SHA-256: rotação, revogação por família e a trava pessimista da renovação. |
+| `auth/service/AuthProperties.java` | ✅ | Configuração do login. Recusa no boot segredo vazio, curto ou o texto literal `${JWT_SECRET}`. |
+| `auth/service/JwtService.java` | ✅ | Emite o access token com `sub`, `role` e `jti` — sem equipes. |
+| `auth/service/LoginLockoutService.java` | ✅ | Conta a falha em transação própria, para a exceção do login não desfazer a contagem. |
+| `auth/service/RefreshTokenService.java` | ✅ | Emite, rotaciona e revoga. Num replay revoga a família inteira, e a exceção que vem depois não desfaz isso. |
+| `auth/service/AuthService.java` | ✅ | A ordem do login: bloqueio antes da senha, mesma resposta para senha errada e conta inexistente. Sem `@Transactional` de propósito. |
+| `auth/service/Tokens.java`, `IssuedRefreshToken.java` e as 3 exceções | ✅ | Valores que não imprimem credencial no `toString`; `InvalidCredentials` e `InvalidRefreshToken` (401) e `AccountLocked` (423). |
+| `auth/infra/JwtConfig.java` | ✅ | Chave HS256, encoder, decoder travado no algoritmo e conversão do claim `role` em `ROLE_*`. Loga que subiu. |
+| `auth/infra/JdbcLoginLockoutRepository.java` | ✅ | Contador de falhas com `INSERT … ON CONFLICT DO UPDATE` atômico, que recomeça após bloqueio vencido ou falha antiga. |
+| `auth/infra/SpringDataRefreshTokenRepository.java`, `JpaRefreshTokenRepository.java` | ✅ | Refresh tokens em JPA. A busca para renovar exige transação aberta, senão a trava não valeria. |
+| `auth/web/v1/AuthController.java` + `dto/` | ✅ | `POST /api/v1/auth/login`, `/refresh` e `/logout`, públicos também no contrato OpenAPI. |
 
 ### `src/main/resources/`
 
 | Caminho | Status | O que faz |
 |---|---|---|
-| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, modo `archive` para eventos concluídos, Jackson em UTC, virtual threads e probes do Actuator. Importa `backend/.env` se existir, define os placeholders do seed do admin e tolera a ausência do seed repetível, para a mesma base subir com e sem o perfil `dev`. |
+| `application.yml` | ✅ | Datasource com defaults do Compose, `ddl-auto: validate`, Flyway, modo `archive` para eventos concluídos, Jackson em UTC, virtual threads e probes do Actuator. Importa `backend/.env` se existir, define os placeholders do seed do admin, a configuração do login (`ticketsystem.auth.*`, sem default para o segredo) e tolera a ausência do seed repetível, para a mesma base subir com e sem o perfil `dev`. |
 | `application-dev.yml` | ✅ | Acrescenta a location `db/seed` ao Flyway: é o único perfil que carrega a base de demonstração. `./mvnw spring-boot:run` ativa este perfil. |
 | `db/migration/V1__create_event_publication.sql` | ✅ | Tabelas do registro de publicação de eventos do Modulith, ativa e de arquivo. É o que garante reprocessamento de listener que falhou. O cabeçalho registra a questão de retenção de dado pessoal no arquivo. |
 | `db/migration/V2__create_users_and_teams.sql` | ✅ | Cria `users`, `teams` e `team_memberships`. Um usuário participa de várias equipes (UNIQUE no par); e-mail é guardado sempre em minúsculas, então o UNIQUE comum já resolve unicidade e login; nome de equipe é único por índice funcional, preservando a caixa digitada. Um CHECK exige BCrypt completo em `password_hash` — senha em texto, placeholder não substituído ou hash truncado não entram. |
 | `db/migration/V3__seed_admin_user.sql` | ✅ | Semeia o primeiro administrador com o hash vindo de `ADMIN_PASSWORD_HASH`. Sem a variável, o CHECK da V2 derruba o boot nesta migration. |
+| `db/migration/V4__create_refresh_tokens_and_login_lockouts.sql` | ✅ | Tabelas de sessão (`refresh_tokens`, só com hash SHA-256, família e motivo de revogação) e de tentativas de login (`login_lockouts`, uma linha por conta, fora de `users`). |
 | `db/seed/R__demo_users_and_teams.sql` | ✅ | Elenco de demonstração (duas equipes, líderes, agentes e solicitantes) fora da linha de migrations versionadas. Repetível e idempotente; só roda no perfil `dev`. |
 
 ### `src/test/`
@@ -89,10 +117,22 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `UsersAndTeamsSchemaIT.java` | ✅ | Fixa as regras de `users`, `teams` e `team_memberships` que só existem quando o Postgres executa: unicidade e normalização de e-mail, papéis dentro do enum, participação em várias equipes, cascata dos vínculos, os formatos de hash aceitos e recusados, e que o admin semeado autentica com a senha que o README publica. |
 | `config/JacksonConfigTest.java` | ✅ | Fixa a serialização de `Instant` como string ISO-8601 — o formato é contrato, não default de biblioteca. |
 | `common/domain/BaseEntityTest.java` | ✅ | A igualdade de entidade: duas instâncias sem id nunca são iguais, e o hash sobrevive à persistência. |
-| `common/error/GlobalExceptionHandlerTest.java` | ✅ | Fixa o contrato de erro com MockMvc: `ProblemDetail` em validação e em método não suportado, com os campos rejeitados ordenados. |
+| `common/error/GlobalExceptionHandlerTest.java` | ✅ | Fixa o contrato de erro com MockMvc: `ProblemDetail` em validação, em método não suportado, em cada `ProblemKind` e em 401/403, sem vazar a mensagem interna. |
+| `RefreshTokensAndLockoutsSchemaIT.java` | ✅ | Constraints da V4 contra Postgres real: hash de token só em SHA-256 hexadecimal, motivo de revogação coerente, um bloqueio por conta, cascata ao apagar o usuário. |
+| `config/SecurityIT.java` | ✅ | A cadeia de filtros com tokens reais: expirado, outra chave, payload adulterado e `alg: none` dão 401; papel insuficiente dá 403; rota pública responde; tudo em `ProblemDetail`. |
+| `config/OpenApiContractIT.java` | ✅ | O contrato publicado: os endpoints de sessão sem bearer, o resto com. |
+| `user/domain/UserTest.java`, `user/service/UserServiceTest.java` | ✅ | Invariantes do usuário; conferência de senha, limite de 72 bytes e e-mail duplicado. |
+| `user/web/v1/UserControllerIT.java` | ✅ | Criação por admin de ponta a ponta — inclusive o login de quem foi criado —, 409, 400, largura 150/151 e o caso negativo de permissão. |
+| `auth/domain/*Test.java` | ✅ | Bordas do bloqueio e da validade do refresh token. |
+| `auth/service/*Test.java` | ✅ | Claims do token (sem equipes), rotação e reuso, ordem do login, rejeições de configuração e `toString` que não vaza credencial. |
+| `auth/infra/LoginLockoutRepositoryIT.java`, `RefreshTokenRepositoryIT.java` | ✅ | O SQL do contador e a revogação em massa contra Postgres real. |
+| `auth/web/v1/AuthControllerIT.java` | ✅ | Login, bloqueio, rotação e reuso pelo endpoint, olhando o banco para provar que as proteções sobrevivem à exceção. |
+| `support/UserBuilder.java` | ✅ | Usuário de teste em uma linha, com e-mail único e id sintético — sem o id, `BaseEntity.equals` faria teste de visibilidade passar por acidente. Não conhece equipe. |
+| `support/AuthTokens.java` | ✅ | Token válido e cada forja de token inválido num lugar só, assinando com o encoder da própria aplicação. |
+| `support/SecureMockMvc.java` | ✅ | MockMvc sobre o contexto com a cadeia de segurança real, sem precisar do `spring-boot-webmvc-test`. |
 | `support/PostgresContainer.java` | ✅ | Container Postgres 16 reaproveitado, ligado ao contexto por `@ServiceConnection`. |
 | `support/IntegrationTest.java` | ✅ | Anotação-base que junta `@SpringBootTest`, perfil de teste e o container, e anula o import do `.env` para a suíte não enxergar a configuração da máquina de quem roda. |
-| `resources/application-test.yml` | ✅ | Configuração dos testes. Sem datasource fixo: a URL vem do container. Fixa os placeholders do seed do admin, para a suíte não depender de um `.env` na máquina, e deixa a location `db/seed` de fora. |
+| `resources/application-test.yml` | ✅ | Configuração dos testes. Sem datasource fixo: a URL vem do container. Fixa os placeholders do seed do admin e a configuração do login, para a suíte não depender de um `.env` na máquina, e deixa a location `db/seed` de fora. |
 
 ## Frontend — `frontend/`
 
@@ -169,6 +209,7 @@ o Compose está em [CLAUDE.md](CLAUDE.md#kubernetes-em-k8s).
 |---|---|---|
 | `adr/0001-versoes-da-stack.md` | ✅ | As versões escolhidas, as quatro armadilhas confirmadas na prática e por que TypeScript e ESLint ficam atrás do `latest`. |
 | `adr/0002-infra-local-compose-e-kubernetes.md` | ✅ | Por que Compose desenvolve e Kubernetes demonstra, e o que mantém o `k8s/` honesto. |
+| `adr/0003-autenticacao-jwt.md` | ✅ | Por que o token carrega só `sub` e `role`, HS256 em vez de RS256, refresh opaco em banco com rotação e bloqueio por conta — e os custos aceitos de cada escolha. |
 | `roadmap.md` | ✅ | O que falta para a aplicação completa, em fases ordenadas por dependência, com as premissas de produto assumidas e os riscos conhecidos. Item concluído sai dali e entra aqui. |
 | `modules/` | ✅ | Diagramas PlantUML e canvas por módulo. **Saída de build**: regerados a cada `./mvnw test`, nunca escritos à mão. |
 
@@ -197,7 +238,8 @@ ainda são planejados.
 | Mudar o elenco de demonstração | `backend/src/main/resources/db/seed/` ✅ — só carrega no perfil `dev` |
 | Adicionar um endpoint | `backend/.../<feature>/web/v1/` e depois regenerar os tipos do frontend |
 | Trocar o armazenamento de um módulo | Novo adaptador em `backend/.../<feature>/infra/`; a interface fica em `domain/` |
-| Mudar login / emissão de token | `backend/.../auth/` e `frontend/src/lib/auth/` |
+| Mudar login / emissão de token | `backend/.../auth/` ✅ e `frontend/src/lib/auth/` |
+| Mudar quem pode chamar qual rota | `backend/.../config/SecurityConfig.java` ✅ |
 | Mudar uma tela | `frontend/src/modules/{módulo}/components/pages/` (composição) e `frontend/src/app/` (auth e dados) |
 | Criar um componente novo | `frontend/src/modules/{módulo}/components/{atoms\|molecules\|organisms}/` |
 | Mudar como o frontend lê da API | `frontend/src/modules/{módulo}/services/` e `frontend/src/lib/http/client.ts` ✅ |
@@ -205,7 +247,7 @@ ainda são planejados.
 | Mudar cor, espaçamento ou raio | `frontend/src/styles/tokens.css` ✅ |
 | Mudar variáveis de ambiente ou containers | `docker/` ✅, os `.env.example` ✅ e, na mesma alteração, `k8s/base/` ✅ |
 | Entender o que testar antes e o que testar depois | [CLAUDE.md](CLAUDE.md#testes) |
-| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ (builders ainda não existem) |
+| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ — `IntegrationTest`, `UserBuilder`, `AuthTokens`, `SecureMockMvc` |
 | Escrever um teste E2E | `e2e/specs/` ✅ |
 
 ---
@@ -219,23 +261,13 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 
 | Caminho | O que fará |
 |---|---|
-| `auth/AuthFacade.java` | API pública: resolve o usuário autenticado para os demais módulos. |
-| `auth/web/v1/AuthController.java` | Endpoints de login e refresh de token. |
-| `auth/service/JwtService.java` | Emite e valida os tokens assinados. A biblioteca ainda não foi escolhida — ver a nota sobre Jackson 3 no [ADR 0001](docs/adr/0001-versoes-da-stack.md). |
-| `auth/service/AuthService.java` | Confere credenciais e monta o token com papel e equipes do usuário. |
-| `config/JwtAuthenticationFilter.java` | Lê o token de cada requisição, valida e popula o `SecurityContext`. Entra na cadeia do `SecurityConfig`, que hoje nega tudo que não é público. |
+| `auth/AuthFacade.java`, `auth/CurrentUser.java` | API pública: quem está pedindo, lido do token (id e papel). Entra na Fase 3, com o primeiro consumidor. |
 
 ### `user/` — usuários
 
 | Caminho | O que fará |
 |---|---|
-| `user/UserFacade.java` | API pública: consulta de usuário por id, para os demais módulos. |
-| `user/domain/User.java` | Entidade do usuário: credenciais, nome, papel global e horário de trabalho opcional. |
-| `user/domain/UserRole.java` | Enum `REQUESTER`, `AGENT`, `ADMIN`. |
-| `user/domain/WorkSchedule.java` | Horário de trabalho customizado (faixas por dia da semana + zona). Opcional. |
-| `user/domain/UserRepository.java` | Interface do repositório de usuários, em linguagem de negócio. |
-| `user/infra/JpaUserRepository.java` | Implementa a interface acima sobre Spring Data. |
-| `user/web/v1/UserController.java` | CRUD de usuários, restrito a admin. |
+| `user/domain/WorkSchedule.java` | Horário de trabalho customizado (faixas por dia da semana + zona). Opcional. Entra com o relógio de SLA, na Fase 6. |
 
 ### `team/` — equipes
 
@@ -295,12 +327,12 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 
 | Caminho | O que fará |
 |---|---|
-| `V4__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
-| `V5__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
-| `V6__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
+| `V5__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
+| `V6__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
+| `V7__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
 
-A numeração vai até a `V3`, na Parte 1. Migration é forward-only: o schema de tickets
-entra na `V4`, nunca editando as anteriores.
+A numeração vai até a `V4`, na Parte 1. Migration é forward-only: o schema de tickets
+entra na `V5`, nunca editando as anteriores.
 
 Nomes sujeitos a ajuste conforme a implementação avança.
 
@@ -311,7 +343,7 @@ A estrutura espelha a de `main/`. A estratégia está em [CLAUDE.md](CLAUDE.md#t
 | Caminho | O que fará |
 |---|---|
 | `support/TicketBuilder.java` | Monta tickets para teste em uma linha, escondendo o setup de equipe, solicitante e SLA. |
-| `support/UserBuilder.java`, `support/TeamBuilder.java` | Mesmo papel para usuários, equipes e vínculos. Nascem junto das entidades `User` e `Team`, nas Fases 2 e 3 — um builder sem entidade só saberia inserir SQL cru. |
+| `support/TeamBuilder.java` | Mesmo papel do `UserBuilder` para equipes e vínculos, na Fase 3. Precisa montar alguém em duas equipes — é o caso que a Fase 5 exercita. |
 | `ticket/service/` | Testes unitários das regras de transição, atribuição e acesso. |
 | `ticket/domain/TicketRepositoryContractTest.java` | Testes de contrato escritos contra a **interface** do repositório. Qualquer adaptador futuro roda esta mesma suíte sem reescrita. |
 | `ticket/infra/TicketSpecificationsIT.java` | **Escrito antes da implementação.** Verifica contra Postgres real que a listagem não devolve ticket que o usuário não pode ver. |

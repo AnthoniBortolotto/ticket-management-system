@@ -14,7 +14,7 @@ equipe, controle de visibilidade por papel e SLA calculado em horário comercial
 | Modularidade | Spring Modulith 2.1 — fronteiras entre módulos verificadas por teste |
 | Banco | PostgreSQL 16 + Flyway (migrations versionadas) |
 | Frontend | Next.js 16 (App Router) + React 19 + TypeScript 5.9 + CSS Modules |
-| Auth | JWT próprio no Spring Security, cookie `httpOnly` no Next.js |
+| Auth | JWT HS256 validado pelo resource server do Spring Security, refresh token revogável em banco, cookie `httpOnly` no Next.js |
 | Contrato | OpenAPI gerado pelo springdoc 3.1; tipos TS derivados do schema |
 | Testes | JUnit 5 + Testcontainers, Vitest + Testing Library, Playwright |
 | Infra local | Docker Compose (Postgres + backend + frontend); `k8s/` para deploy |
@@ -103,11 +103,11 @@ definir). O relógio do SLA:
 └── CODEBASE-MAP.md   Mapa navegável do código — o que existe e onde
 ```
 
-> **Estado atual: esqueleto com a fundação de dados pronta.** Build, testes e Docker
-> estão de pé, e o schema de usuários, equipes e vínculos já existe, com administrador
-> semeado e uma carga de demonstração para o perfil `dev`. **Ainda não há entidade Java,
-> endpoint nem tela.** O que existe e o que falta está separado em
-> [CODEBASE-MAP.md](CODEBASE-MAP.md).
+> **Estado atual: identidade e autenticação prontas.** Login com JWT, sessão
+> revogável, bloqueio por força bruta e gestão mínima de usuários funcionam de ponta a
+> ponta. **Ainda não há equipes, tickets nem tela.** O que existe e o que falta está
+> separado em [CODEBASE-MAP.md](CODEBASE-MAP.md); as decisões de autenticação, no
+> [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
 
 O backend organiza-se por feature (`ticket/`, `team/`, `sla/`), com a versão da API
 apenas na camada web. O frontend organiza-se por módulo, com atomic design dentro de
@@ -180,6 +180,25 @@ ambiente que não seja a sua máquina, gere outro hash.
 | `agente.polivalente@ticketsystem.local` | `AGENT` | Suporte N1 e Infraestrutura (`MEMBER`) |
 | `ana.solicitante@ticketsystem.local`, `bruno.solicitante@ticketsystem.local` | `REQUESTER` | — |
 
+#### Chamando a API autenticada
+
+```bash
+# 1. login: devolve o access token (60 min) e o refresh token (7 dias)
+curl -s -X POST localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@ticketsystem.local","password":"admin123"}'
+
+# 2. usar o access token
+curl -s localhost:8080/api/v1/users/1 -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# 3. renovar: o refresh token usado deixa de valer, e reapresenta-lo derruba a sessao
+curl -s -X POST localhost:8080/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
+```
+
+Cinco senhas erradas seguidas bloqueiam a conta por 15 minutos (`423`). O contrato
+completo está em `http://localhost:8080/swagger-ui.html`.
+
 ### Rodando em Kubernetes (opcional)
 
 Demonstração de deploy sobre as mesmas imagens do Compose. Não é o ambiente de
@@ -197,24 +216,31 @@ O Ingress espera o controller `ingress-nginx` instalado no cluster.
 
 ## Variáveis de ambiente
 
-Só uma é obrigatória — `ADMIN_PASSWORD_HASH`, porque a migration que cria o primeiro
-administrador precisa de um hash e `application.yml` não traz default para ela. As demais
-têm defaults em `application.yml` e no Compose que combinam entre si.
+Duas são obrigatórias, e nenhuma das duas tem default no código:
+
+- `ADMIN_PASSWORD_HASH`, porque a migration que cria o primeiro administrador precisa de
+  um hash;
+- `JWT_SECRET`, porque um default aqui significaria assinar tokens com uma chave
+  publicada no repositório.
+
+As demais têm defaults em `application.yml` e no Compose que combinam entre si.
 
 Para ser exato sobre o que isso protege: o `.env.example` e o Secret do Kubernetes **têm**
-um hash de desenvolvimento publicado, de propósito, para o projeto rodar sem setup. Quem
-segue este README termina com `admin` / `admin123`, e isso é conhecido. O que a ausência
-de default garante é que um ambiente que não copiou nenhum desses arquivos **não sobe**,
-em vez de subir com um administrador de senha pública sem ninguém perceber.
+valores de desenvolvimento publicados, de propósito, para o projeto rodar sem setup. Quem
+segue este README termina com `admin` / `admin123` e uma chave de assinatura conhecida,
+e isso é sabido. O que a ausência de default garante é que um ambiente que não copiou
+nenhum desses arquivos **não sobe**, em vez de subir com credenciais públicas sem
+ninguém perceber.
 
 ```bash
-cp backend/.env.example backend/.env         # necessario; traz o ADMIN_PASSWORD_HASH de exemplo
+cp backend/.env.example backend/.env         # necessario; traz os valores obrigatorios de exemplo
 cp frontend/.env.example frontend/.env.local # o Next le .env.local nativamente
 ```
 
-Se o backend não subir com `violates check constraint "users_password_hash_is_bcrypt"`,
-é este arquivo que está faltando. A falha é proposital: sem ela, a aplicação subiria com
-um administrador cuja senha não é hash nenhum.
+Se o backend não subir com `violates check constraint "users_password_hash_is_bcrypt"`
+ou com `ticketsystem.auth.secret nao esta definido`, é este arquivo que está faltando. As
+duas falhas são propositais: sem elas, a aplicação subiria com um administrador cuja
+senha não é hash nenhum, ou assinando tokens com uma chave vazia.
 
 | Variável | Onde | Descrição |
 |---|---|---|
@@ -222,8 +248,12 @@ um administrador cuja senha não é hash nenhum.
 | `SERVER_PORT`, `LOG_LEVEL` | backend | Porta e verbosidade |
 | `ADMIN_PASSWORD_HASH` | backend | **Obrigatória.** Hash BCrypt da senha do primeiro administrador. O SQL nunca vê senha em texto |
 | `ADMIN_EMAIL` | backend | E-mail desse administrador. Tem default. O nome não é variável: vai literal na migration, porque placeholder de Flyway não escapa nada |
-| `JWT_SECRET` | backend | Chave de assinatura dos tokens (nunca commitar). Ainda não lida — entra com o módulo `auth` |
-| `JWT_EXPIRATION_MINUTES` | backend | Tempo de vida do access token. Idem |
+| `JWT_SECRET` | backend | **Obrigatória.** Chave HS256 dos tokens: texto de pelo menos 32 bytes, lido como está (não é base64). O boot recusa valor curto, vazio ou o placeholder não resolvido |
+| `JWT_ISSUER` | backend | Emissor gravado no token. Default `ticket-system` |
+| `JWT_EXPIRATION_MINUTES` | backend | Validade do access token. Default 60 |
+| `JWT_REFRESH_DAYS` | backend | Validade do refresh token. Default 7 |
+| `LOGIN_MAX_FAILED_ATTEMPTS` | backend | Falhas seguidas que bloqueiam a conta. Default 5 |
+| `LOGIN_LOCK_MINUTES` | backend | Duração do bloqueio, e janela em que falhas contam como seguidas. Default 15 |
 | `API_BASE_URL` | frontend | URL do backend usada pelo servidor Next.js. Não é `NEXT_PUBLIC_`: o browser nunca fala com o backend direto |
 
 ## Testes
