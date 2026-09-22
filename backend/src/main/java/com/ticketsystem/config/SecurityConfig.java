@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -39,5 +41,24 @@ class SecurityConfig {
             .httpBasic(basic -> basic.disable())
             .formLogin(form -> form.disable())
             .build();
+    }
+
+    /**
+     * Como as senhas sao verificadas e gravadas.
+     *
+     * <p><strong>BCrypt puro, e nao {@code PasswordEncoderFactories.createDelegatingPasswordEncoder()}.</strong>
+     * O delegating grava com prefixo de algoritmo ({@code {bcrypt}$2a$10$...}), e isso
+     * quebra o sistema em dois lugares ao mesmo tempo: o valor com prefixo viola o CHECK
+     * {@code users_password_hash_is_bcrypt} da migration V2, entao nenhum usuario novo
+     * seria gravado; e o {@code matches} contra o hash pelado do admin semeado falharia por
+     * nao achar prefixo, entao ninguem conseguiria entrar. Compila e sobe normalmente — e
+     * por isso existe teste so para esta escolha.
+     *
+     * <p>O custo fica no padrao da biblioteca (10). Subi-lo e mudanca de seguranca legitima,
+     * mas hashes antigos continuam validando com o custo com que foram gerados.
+     */
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 }

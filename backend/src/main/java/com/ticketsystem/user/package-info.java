@@ -1,13 +1,15 @@
 /**
- * Usuarios, papeis globais e horario de trabalho customizado.
+ * Usuarios e papeis globais. Dono da identidade e da credencial.
  *
- * <p>Modulo ainda sem implementacao. Ao criar a primeira classe aqui, anote este pacote
- * com {@code @ApplicationModule(displayName = "Usuarios")}: a partir dai o Modulith passa a
- * tratar a raiz deste pacote como API publica e {@code domain}, {@code service},
- * {@code infra} e {@code web} como internos, quebrando o build se outro modulo os
- * importar.
+ * <p>A superficie publica e {@code UserFacade}, {@code UserAccount} e {@code UserRole};
+ * {@code domain}, {@code service}, {@code infra} e {@code web} sao internos e o Modulith
+ * quebra o build se outro modulo os importar.
  *
- * <p>Anotar um pacote vazio nao funciona — o ArchUnit falha ao refletir sobre um
- * {@code package-info} solitario.
+ * <p><strong>O hash da senha nao sai daqui.</strong> Quem precisa conferir credencial
+ * chama {@code UserFacade.authenticate}, que compara dentro do modulo e devolve so o
+ * resultado. Uma consulta que devolvesse o hash seria um vazamento com fachada em volta.
+ *
+ * <p>{@code WorkSchedule} chega na Fase 6, junto com o relogio de SLA.
  */
+@org.springframework.modulith.ApplicationModule(displayName = "Usuarios")
 package com.ticketsystem.user;

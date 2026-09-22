@@ -2,4 +2,6 @@
 |===
 |Base package
 |`com.ticketsystem.user`
+|Spring components
+|* `c.t.u.UserFacade`
 |===

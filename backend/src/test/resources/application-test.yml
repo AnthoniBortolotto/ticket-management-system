@@ -20,6 +20,22 @@ spring:
       admin_email: admin@ticketsystem.local
       admin_password_hash: $2a$10$TqZk9EsL91XXwsirPJRFpugEf.AsiMXF2h.Pr1z1FQ4GjfCwiHpBC
 
+ticketsystem:
+  auth:
+    # Fixo aqui, e nao herdado do ambiente: `support/IntegrationTest` anula o
+    # `spring.config.import`, entao a suite nao enxerga o backend/.env de quem roda. Sem
+    # este valor, TODO teste de integracao quebraria no boot.
+    secret: segredo-de-teste-com-mais-de-trinta-e-dois-bytes
+    issuer: ticket-system-test
+    access-token-ttl: 30m
+    refresh-token-ttl: 7d
+    # Limite baixo para o teste de forca bruta custar tres verificacoes BCrypt, nao cinco.
+    # Aqui, e nao em @SpringBootTest(properties=...) por classe: a chave do cache de
+    # contexto do Spring inclui as properties, entao um override por classe criaria um
+    # contexto novo e custaria mais do que o teste economiza.
+    max-failed-attempts: 3
+    lock-duration: 15m
+
 logging:
   level:
     com.ticketsystem: DEBUG

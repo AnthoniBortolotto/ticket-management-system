@@ -80,6 +80,28 @@ spring:
     virtual:
       enabled: true
 
+ticketsystem:
+  auth:
+    # Sem default no codigo, de proposito: um valor aqui valeria para todo ambiente,
+    # inclusive os que ninguem configurou, e assinar token com chave publicada no
+    # repositorio e o mesmo erro que o ADMIN_PASSWORD_HASH quase produziu.
+    #
+    # O default vazio abaixo nao e um segredo fraco: `AuthProperties` recusa valor vazio,
+    # valor com menos de 32 bytes e o texto literal `${JWT_SECRET}` — este ultimo porque
+    # o Spring nao reclama de variavel de ambiente ausente, ele deixa o placeholder como
+    # texto. Sem isso, a aplicacao subiria assinando com essa string.
+    #
+    # Para desenvolver: `cp backend/.env.example backend/.env`.
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:ticket-system}
+    access-token-ttl: ${JWT_EXPIRATION_MINUTES:60}m
+    refresh-token-ttl: ${JWT_REFRESH_DAYS:7}d
+    # Bloqueio de conta apos tentativas de login fracassadas. Fica em configuracao, e nao
+    # em banco: prazo de SLA e dado de negocio que um admin edita em runtime, mas isto e
+    # parametro operacional de seguranca, que muda com deploy.
+    max-failed-attempts: ${LOGIN_MAX_FAILED_ATTEMPTS:5}
+    lock-duration: ${LOGIN_LOCK_MINUTES:15}m
+
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
