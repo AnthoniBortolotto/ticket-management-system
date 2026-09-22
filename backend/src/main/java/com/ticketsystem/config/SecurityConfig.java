@@ -1,27 +1,53 @@
 package com.ticketsystem.config;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * Cadeia de filtros da API.
+ * Cadeia de filtros da API: quem pode chamar o que, e como uma recusa e respondida.
  *
- * <p>A API e stateless: nao ha sessao nem CSRF token, porque o cliente se identifica
- * por JWT a cada requisicao. Enquanto o modulo {@code auth} nao existe, nenhuma rota
- * protegida e alcancavel — o padrao e negar, nao liberar.
+ * <p>Stateless: nao ha sessao de servidor nem cookie. Cada requisicao traz um JWT no
+ * cabecalho {@code Authorization: Bearer}, validado pelo resource server do Spring
+ * Security — assinatura, algoritmo e validade, sem uma linha de validacao escrita a mao.
+ *
+ * <p>CSRF desligado porque nao ha credencial que o navegador envie sozinho: o token vai
+ * num cabecalho, e o browser nunca fala com esta API direto — quem chama e o servidor do
+ * Next.js, que guarda o token em cookie {@code httpOnly} do lado de la.
+ *
+ * <p>O padrao e negar. Toda rota nao listada abaixo exige autenticacao, entao um endpoint
+ * novo nasce protegido, e liberar e que exige uma decisao escrita.
  */
 @Configuration
 @EnableWebSecurity
 class SecurityConfig {
 
-    /** Rotas abertas: sonda de saude e a documentacao do contrato. */
-    private static final String[] PUBLIC_PATHS = {
+    /**
+     * Sonda de saude e documentacao do contrato.
+     *
+     * <p>{@code /swagger-ui} e {@code /v3/api-docs} ficam publicos por decisao, registrada
+     * no ADR 0003: e projeto de portfolio, o contrato navegavel sem token e parte da
+     * demonstracao, e ele nao expoe dado nenhum — so o formato das requisicoes.
+     */
+    static final String[] PUBLIC_PATHS = {
         "/actuator/health",
         "/actuator/health/**",
         "/v3/api-docs",
@@ -30,17 +56,94 @@ class SecurityConfig {
         "/swagger-ui/**"
     };
 
+    /**
+     * Os tres endpoints de sessao, listados um a um e so para {@code POST}.
+     *
+     * <p>Nunca como {@code /api/v1/auth/**}: esse curinga liberaria, sem ninguem perceber,
+     * todo endpoint que o modulo ganhasse depois — e os testes de "rota publica responde"
+     * continuariam verdes. {@code refresh} e {@code logout} sao publicos porque quem os
+     * chama pode estar com o access token ja expirado; a credencial ali e o refresh token
+     * no corpo.
+     */
+    static final String[] SESSION_PATHS = {
+        "/api/v1/auth/login",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/logout"
+    };
+
     @Bean
-    SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain apiFilterChain(
+            HttpSecurity http,
+            Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter,
+            AuthenticationEntryPoint problemAuthenticationEntryPoint,
+            AccessDeniedHandler problemAccessDeniedHandler) throws Exception {
         return http
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(requests -> requests
                 .requestMatchers(PUBLIC_PATHS).permitAll()
+                .requestMatchers(HttpMethod.POST, SESSION_PATHS).permitAll()
+                .requestMatchers("/api/v1/users", "/api/v1/users/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
+            .oauth2ResourceServer(resourceServer -> resourceServer
+                // O conversor vai explicito: e ele que transforma o claim `role` em
+                // ROLE_ADMIN. Sem ele, todo mundo autentica com zero permissoes e recebe
+                // 403 em tudo — bug de conversao disfarcado de bug de permissao.
+                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
+                .authenticationEntryPoint(problemAuthenticationEntryPoint)
+                .accessDeniedHandler(problemAccessDeniedHandler))
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint(problemAuthenticationEntryPoint)
+                .accessDeniedHandler(problemAccessDeniedHandler))
             .httpBasic(basic -> basic.disable())
             .formLogin(form -> form.disable())
             .build();
+    }
+
+    /**
+     * Resposta a "nao sei quem voce e" — token ausente, invalido ou expirado.
+     *
+     * <p>401 nasce dentro da cadeia de filtros, antes do {@code DispatcherServlet}, e por
+     * isso nao passaria pelo {@code @RestControllerAdvice}: a API teria um formato de erro
+     * para o dominio e outro para autenticacao. Devolver a excecao ao
+     * {@link HandlerExceptionResolver} — o mesmo objeto que alimenta o advice — e o que
+     * faz 401 sair em {@code ProblemDetail} como todo o resto.
+     *
+     * <p>O cabecalho {@code WWW-Authenticate} vai na mao porque substituir o entry point
+     * padrao do resource server tira o que ele poria.
+     */
+    @Bean
+    AuthenticationEntryPoint problemAuthenticationEntryPoint(
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
+        return (request, response, exception) -> {
+            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+            delegarAoAdvice(resolver, request, response, exception, HttpStatus.UNAUTHORIZED);
+        };
+    }
+
+    /** Resposta a "sei quem voce e, e voce nao pode" — mesmo caminho, 403. */
+    @Bean
+    AccessDeniedHandler problemAccessDeniedHandler(
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
+        return (request, response, exception) ->
+                delegarAoAdvice(resolver, request, response, exception, HttpStatus.FORBIDDEN);
+    }
+
+    /**
+     * Se nenhum {@code @ExceptionHandler} reconhecer a excecao, {@code resolveException}
+     * devolve {@code null} e a resposta sairia <strong>200 com corpo vazio</strong> — uma
+     * requisicao sem token virando "sucesso", sem erro nem log. O {@code sendError} abaixo
+     * torna esse caso impossivel: no pior cenario sai o status certo sem o corpo padrao.
+     */
+    private static void delegarAoAdvice(
+            HandlerExceptionResolver resolver,
+            HttpServletRequest request,
+            HttpServletResponse response,
+            Exception exception,
+            HttpStatus statusDeSeguranca) throws IOException {
+        if (resolver.resolveException(request, response, null, exception) == null) {
+            response.sendError(statusDeSeguranca.value());
+        }
     }
 
     /**

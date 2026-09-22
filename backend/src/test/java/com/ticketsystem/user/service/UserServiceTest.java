@@ -83,9 +83,42 @@ class UserServiceTest {
         when(encoder.encode("senha-crua")).thenReturn(HASH);
         when(repositorio.save(any(User.class))).thenAnswer(chamada -> chamada.getArgument(0));
 
-        service.create("nova@empresa.com", "Nova Pessoa", "senha-crua", UserRole.REQUESTER);
+        var criada = service.create("nova@empresa.com", "Nova Pessoa", "senha-crua", UserRole.REQUESTER);
 
         verify(encoder).encode("senha-crua");
+        // O retorno e o que o controller devolve ao admin. Sem afirmar sobre ele, um
+        // `return null` passaria — foi o PITest que apontou.
+        assertThat(criada.email()).isEqualTo("nova@empresa.com");
+        assertThat(criada.fullName()).isEqualTo("Nova Pessoa");
+        assertThat(criada.role()).isEqualTo(UserRole.REQUESTER);
+    }
+
+    @Test
+    @DisplayName("senha de exatamente 72 bytes ainda cabe no BCrypt")
+    void senhaNoLimiteDoBcryptEhAceita() {
+        when(repositorio.existsByEmail(anyString())).thenReturn(false);
+        when(encoder.encode(anyString())).thenReturn(HASH);
+        when(repositorio.save(any(User.class))).thenAnswer(chamada -> chamada.getArgument(0));
+
+        service.create("nova@empresa.com", "Nova", "a".repeat(72), UserRole.AGENT);
+
+        verify(encoder).encode("a".repeat(72));
+    }
+
+    @Test
+    @DisplayName("senha acima de 72 bytes e recusada como erro de entrada, nao como 500")
+    void senhaAcimaDoLimiteDoBcryptEhRecusada() {
+        when(repositorio.existsByEmail(anyString())).thenReturn(false);
+        // 40 caracteres, 80 bytes em UTF-8. Um @Size(max = 72) no DTO contaria caracteres
+        // e deixaria passar; o BCryptPasswordEncoder conta bytes e lanca
+        // IllegalArgumentException — que chegaria ao cliente como erro interno.
+        String acentuada = "ç".repeat(40);
+
+        assertThatThrownBy(() -> service.create("nova@empresa.com", "Nova", acentuada, UserRole.AGENT))
+                .isInstanceOf(PasswordTooLongException.class)
+                .extracting(e -> ((PasswordTooLongException) e).kind())
+                .isEqualTo(ProblemKind.INVALID);
+        verify(encoder, never()).encode(anyString());
     }
 
     @Test

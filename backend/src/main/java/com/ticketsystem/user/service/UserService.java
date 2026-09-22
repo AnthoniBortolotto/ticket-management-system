@@ -4,6 +4,7 @@ import com.ticketsystem.user.UserAccount;
 import com.ticketsystem.user.UserRole;
 import com.ticketsystem.user.domain.User;
 import com.ticketsystem.user.domain.UserRepository;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,12 @@ public class UserService {
      */
     private static final String HASH_DESCARTAVEL =
             "$2a$10$qKPdARdr8P.zVL8vWjLuIuuVew89Vd38WEBlkyecf5FAmxBk.54IS";
+
+    /**
+     * O BCrypt so usa os primeiros 72 bytes da senha, e o encoder do Spring recusa o
+     * resto com excecao. O limite e em bytes, entao nao cabe num {@code @Size} de DTO.
+     */
+    private static final int LIMITE_DO_BCRYPT_EM_BYTES = 72;
 
     private final UserRepository repositorio;
     private final PasswordEncoder encoder;
@@ -63,6 +70,9 @@ public class UserService {
         // quem chama ter normalizado o valor antes.
         if (repositorio.existsByEmail(email)) {
             throw new EmailAlreadyUsedException();
+        }
+        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > LIMITE_DO_BCRYPT_EM_BYTES) {
+            throw new PasswordTooLongException();
         }
         User novo = new User(email, fullName, encoder.encode(rawPassword), role);
         return comoConta(repositorio.save(novo));

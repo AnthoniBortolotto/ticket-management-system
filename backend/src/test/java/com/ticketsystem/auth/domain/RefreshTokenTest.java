@@ -86,6 +86,14 @@ class RefreshTokenTest {
     }
 
     @Test
+    @DisplayName("o hash nao aparece no toString")
+    void hashNaoVazaNoToString() {
+        // toString de entidade acaba em log de erro e em mensagem de excecao. O hash nao
+        // deixa entrar na sessao, mas e o identificador dela: nao tem por que estar num log.
+        assertThat(novo().toString()).doesNotContain(HASH).contains("RefreshToken");
+    }
+
+    @Test
     @DisplayName("hash com formato errado nao cria token")
     void hashForaDoFormatoNaoCria() {
         // A mesma regra do CHECK da V4, aqui para falhar antes do banco: guardar o token

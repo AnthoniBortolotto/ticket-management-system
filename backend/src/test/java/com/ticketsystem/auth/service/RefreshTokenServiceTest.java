@@ -20,6 +20,9 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -158,6 +161,17 @@ class RefreshTokenServiceTest {
         service.revoke("qualquer");
 
         verify(repositorio, never()).revokeFamily(any(), any(), any());
+    }
+
+    @ParameterizedTest(name = "token \"{0}\" nao renova")
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    @DisplayName("token ausente ou vazio e recusado sem consultar o banco")
+    void tokenVazioEhRecusado(String vazio) {
+        // O DTO ja barra isso com @NotBlank; esta e a checagem de quem chama o service por
+        // outro caminho. Sem ela, o SHA-256 de uma string vazia viraria uma busca valida.
+        assertThatThrownBy(() -> service.rotate(vazio)).isInstanceOf(InvalidRefreshTokenException.class);
+        verify(repositorio, never()).findForRotation(any());
     }
 
     @Test

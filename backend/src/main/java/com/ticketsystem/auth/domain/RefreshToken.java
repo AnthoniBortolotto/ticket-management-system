@@ -121,10 +121,6 @@ public class RefreshToken extends BaseEntity {
         return familyId;
     }
 
-    public Instant getExpiresAt() {
-        return expiresAt;
-    }
-
     public Instant getUsedAt() {
         return usedAt;
     }

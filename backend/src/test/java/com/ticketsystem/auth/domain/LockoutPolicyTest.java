@@ -40,6 +40,16 @@ class LockoutPolicyTest {
     }
 
     @Test
+    @DisplayName("limite de uma tentativa e valido: a primeira falha ja bloqueia")
+    void limiteDeUmaTentativaEhValido() {
+        // A borda exata do construtor. Um `< 1` trocado por `<= 1` recusaria esta politica,
+        // que e legitima, sem que o teste do zero percebesse.
+        var rigorosa = new LockoutPolicy(1, Duration.ofMinutes(15));
+
+        assertThat(rigorosa.lockAfter(1, FALHA)).isPresent();
+    }
+
+    @Test
     @DisplayName("limite zero seria bloquear todo mundo no primeiro acesso")
     void limiteZeroEhRejeitado() {
         assertThatThrownBy(() -> new LockoutPolicy(0, Duration.ofMinutes(15)))
