@@ -68,6 +68,18 @@ public class UserService {
         return comoConta(repositorio.save(novo));
     }
 
+    /**
+     * A conta de um e-mail, sem conferir senha.
+     *
+     * <p>Existe para o login consultar o bloqueio <em>antes</em> de verificar a senha. Nao
+     * exponha isto para fora do servidor: devolver "existe"/"nao existe" a quem chama a API
+     * transformaria qualquer endpoint num verificador de contas.
+     */
+    @Transactional(readOnly = true)
+    public Optional<UserAccount> findByEmail(String email) {
+        return repositorio.findByEmail(email).map(UserService::comoConta);
+    }
+
     @Transactional(readOnly = true)
     public UserAccount findById(Long id) {
         return repositorio.findById(id).map(UserService::comoConta)

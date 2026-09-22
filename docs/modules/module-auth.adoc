@@ -2,6 +2,8 @@
 |===
 |Base package
 |`com.ticketsystem.auth`
+|Bean references
+|* `c.t.u.UserFacade` (in Usuarios)
 |Properties
 |* `ticketsystem.auth.access-token-ttl` -- `java.time.Duration`
 * `ticketsystem.auth.issuer` -- `java.lang.String`

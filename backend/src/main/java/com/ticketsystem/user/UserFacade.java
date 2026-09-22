@@ -35,6 +35,17 @@ public class UserFacade {
         return service.authenticate(email, rawPassword);
     }
 
+    /**
+     * A conta de um e-mail, sem conferir senha.
+     *
+     * <p>Serve ao login, que precisa saber se a conta esta bloqueada <em>antes</em> de
+     * gastar uma verificacao de senha. O resultado nao pode sair do servidor: devolver
+     * "existe"/"nao existe" a quem chama a API seria um verificador de contas.
+     */
+    public Optional<UserAccount> findByEmail(String email) {
+        return service.findByEmail(email);
+    }
+
     /** Lanca se nao existir — quem so quer saber se existe nao deveria perguntar por id. */
     public UserAccount findById(Long id) {
         return service.findById(id);

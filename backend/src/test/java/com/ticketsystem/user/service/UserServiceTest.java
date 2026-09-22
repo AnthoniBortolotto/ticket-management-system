@@ -135,6 +135,25 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("buscar por e-mail devolve a conta sem conferir senha nenhuma")
+    void buscarPorEmailDevolveAConta() {
+        when(repositorio.findByEmail("ana@empresa.com"))
+                .thenReturn(Optional.of(new User("ana@empresa.com", "Ana", HASH, UserRole.AGENT)));
+
+        assertThat(service.findByEmail("ana@empresa.com")).map(conta -> conta.email())
+                .contains("ana@empresa.com");
+        verify(encoder, never()).matches(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("buscar e-mail que nao existe devolve vazio")
+    void buscarEmailInexistenteDevolveVazio() {
+        when(repositorio.findByEmail("ninguem@empresa.com")).thenReturn(Optional.empty());
+
+        assertThat(service.findByEmail("ninguem@empresa.com")).isEmpty();
+    }
+
+    @Test
     @DisplayName("a conta devolvida nao carrega o hash da senha")
     void contaDevolvidaNaoCarregaHash() {
         when(repositorio.findById(7L))
