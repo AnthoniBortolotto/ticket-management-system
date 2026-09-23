@@ -27,7 +27,8 @@ As versões e as armadilhas de compatibilidade que elas trazem estão em
 **No escopo**
 
 - Ciclo de vida completo do ticket (abertura → triagem → atendimento → resolução)
-- Equipes: todo usuário pertence a uma equipe; tickets são atribuídos a equipes
+- Equipes: agentes participam de uma ou mais equipes, com um líder que gerencia os
+  membros; tickets são atribuídos a equipes
 - Atribuição exclusiva a um usuário, com regras próprias de visibilidade
 - SLA por prioridade, com relógio que pausa em espera e só corre em horário útil
 - Histórico de auditoria imutável de cada mudança de estado
@@ -103,11 +104,11 @@ definir). O relógio do SLA:
 └── CODEBASE-MAP.md   Mapa navegável do código — o que existe e onde
 ```
 
-> **Estado atual: identidade e autenticação prontas.** Login com JWT, sessão
-> revogável, bloqueio por força bruta e gestão mínima de usuários funcionam de ponta a
-> ponta. **Ainda não há equipes, tickets nem tela.** O que existe e o que falta está
-> separado em [CODEBASE-MAP.md](CODEBASE-MAP.md); as decisões de autenticação, no
-> [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
+> **Estado atual: identidade, autenticação e equipes prontas.** Login com JWT, sessão
+> revogável, bloqueio por força bruta, gestão mínima de usuários e gestão de equipes e
+> membros funcionam de ponta a ponta. **Ainda não há tickets nem tela.** O que existe e
+> o que falta está separado em [CODEBASE-MAP.md](CODEBASE-MAP.md); as decisões de
+> autenticação, no [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
 
 O backend organiza-se por feature (`ticket/`, `team/`, `sla/`), com a versão da API
 apenas na camada web. O frontend organiza-se por módulo, com atomic design dentro de

@@ -40,6 +40,12 @@ class JwtConfig {
     /** O claim onde o papel global viaja. Precisa casar com o que o JwtService emite. */
     static final String CLAIM_DE_PAPEL = "role";
 
+    /**
+     * {@code hasRole("ADMIN")} procura a authority {@code ROLE_ADMIN}. O
+     * {@code JwtCurrentUserResolver} desfaz esta mesma conversao, e por isso le daqui.
+     */
+    static final String PREFIXO_DE_PAPEL = "ROLE_";
+
     private final AuthProperties propriedades;
 
     JwtConfig(AuthProperties propriedades) {
@@ -90,8 +96,7 @@ class JwtConfig {
     Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
         var permissoes = new JwtGrantedAuthoritiesConverter();
         permissoes.setAuthoritiesClaimName(CLAIM_DE_PAPEL);
-        // hasRole("ADMIN") procura a authority "ROLE_ADMIN".
-        permissoes.setAuthorityPrefix("ROLE_");
+        permissoes.setAuthorityPrefix(PREFIXO_DE_PAPEL);
 
         var converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(permissoes);

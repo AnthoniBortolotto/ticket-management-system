@@ -2,4 +2,9 @@
 |===
 |Base package
 |`com.ticketsystem.team`
+|Spring components
+|* `c.t.t.TeamFacade`
+|Bean references
+|* `c.t.u.UserFacade` (in Usuarios)
+* `c.t.a.AuthFacade` (in Autenticacao)
 |===

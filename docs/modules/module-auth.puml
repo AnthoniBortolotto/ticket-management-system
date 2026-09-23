@@ -17,9 +17,9 @@ top to bottom direction
 
 System_Boundary("TicketSystemApplication_boundary", "TicketSystemApplication", $tags="") {
   Container_Boundary("TicketSystemApplication.TicketSystemApplication_boundary", "TicketSystemApplication", $tags="") {
-    Component(TicketSystemApplication.TicketSystemApplication.Autenticacao, "Autenticacao", $techn="Module", $descr="", $tags="", $link="")
     Component(TicketSystemApplication.TicketSystemApplication.Comum, "Comum", $techn="Module", $descr="", $tags="", $link="")
     Component(TicketSystemApplication.TicketSystemApplication.Usuarios, "Usuarios", $techn="Module", $descr="", $tags="", $link="")
+    Component(TicketSystemApplication.TicketSystemApplication.Autenticacao, "Autenticacao", $techn="Module", $descr="", $tags="", $link="")
   }
 
 }

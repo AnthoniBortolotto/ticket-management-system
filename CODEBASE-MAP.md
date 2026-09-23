@@ -17,11 +17,12 @@ atualização estão em
 
 # Parte 1 — O que existe hoje
 
-**Estado do repositório: identidade e autenticação prontas; domínio de tickets ainda
-não.** Backend compila, sobe e passa `./mvnw verify`; frontend passa `lint`, `typecheck`,
-`test` e `build`; a stack tem Compose e manifests de Kubernetes. Existem os módulos `user`
-e `auth` completos — login com JWT, sessão revogável e bloqueio por força bruta — e o
-schema de equipes. **Ainda não há código de equipe, de ticket nem tela.**
+**Estado do repositório: identidade, autenticação e equipes prontas; domínio de tickets
+ainda não.** Backend compila, sobe e passa `./mvnw verify`; frontend passa `lint`,
+`typecheck`, `test` e `build`; a stack tem Compose e manifests de Kubernetes. Existem os
+módulos `user`, `auth` e `team` completos — login com JWT, sessão revogável, bloqueio por
+força bruta, quem está pedindo e gestão de equipes e membros. **Ainda não há código de
+ticket nem tela.**
 
 **Não há CI.** Toda verificação é manual: rode os comandos de
 [CLAUDE.md](CLAUDE.md#comandos) antes de commitar. Em particular, **as imagens Docker
@@ -69,7 +70,7 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `common/error/ProblemKind.java` | ✅ | Que tipo de problema aconteceu — inválido, não autenticado, proibido, não encontrado, conflito, bloqueado — e o status HTTP de cada um. |
 | `common/error/DomainException.java` | ✅ | Base das exceções de todos os módulos. É o que deixa o advice único sem `common` importar módulo nenhum: o import inverso fecharia ciclo. |
 | `common/domain/BaseEntity.java` | ✅ | Id e carimbos de tempo em UTC, com igualdade por id. |
-| `team/`, `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
+| `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
 | `user/package-info.java` | ✅ | Declara o módulo `user` e registra que o hash de senha não sai dele. |
 | `user/UserRole.java` | ✅ | Papel global `REQUESTER`, `AGENT`, `ADMIN`. Na raiz, e não em `domain/`: `auth` precisa dele para o claim do token, e subpacote é interno. |
 | `user/UserAccount.java` | ✅ | O que os outros módulos podem saber de um usuário: id, e-mail, nome e papel — nunca o hash. |
@@ -81,6 +82,7 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `user/infra/SpringDataUserRepository.java`, `JpaUserRepository.java` | ✅ | Spring Data e o adaptador que o traduz para a porta de domínio. |
 | `user/web/v1/UserController.java` + `dto/` | ✅ | `POST /api/v1/users` e `GET /api/v1/users/{id}`, só para admin. Versão mínima: a listagem paginada espera a decisão de paginação da Fase 4. |
 | `auth/package-info.java` | ✅ | Declara o módulo `auth` e registra por que o token não carrega equipes. |
+| `auth/AuthFacade.java`, `auth/CurrentUser.java` | ✅ | Única porta do módulo: quem está pedindo, com id e papel global. O controller obtém e entrega ao service, que recebe o ator como parâmetro e não lê o contexto de segurança. |
 | `auth/domain/LockoutPolicy.java` | ✅ | Quantas falhas seguidas bloqueiam a conta e por quanto tempo. Regra pura, com o instante vindo de fora. |
 | `auth/domain/LoginLockout.java`, `LoginLockoutRepository.java` | ✅ | O estado de falhas de uma conta e a porta de escrita atômica. Não é entidade JPA, de propósito. |
 | `auth/domain/RefreshToken.java`, `RevocationReason.java`, `RefreshTokenRepository.java` | ✅ | Sessão renovável guardada pelo SHA-256: rotação, revogação por família e a trava pessimista da renovação. |
@@ -89,11 +91,21 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `auth/service/LoginLockoutService.java` | ✅ | Conta a falha em transação própria, para a exceção do login não desfazer a contagem. |
 | `auth/service/RefreshTokenService.java` | ✅ | Emite, rotaciona e revoga. Num replay revoga a família inteira, e a exceção que vem depois não desfaz isso. |
 | `auth/service/AuthService.java` | ✅ | A ordem do login: bloqueio antes da senha, mesma resposta para senha errada e conta inexistente. Sem `@Transactional` de propósito. |
-| `auth/service/Tokens.java`, `IssuedRefreshToken.java` e as 3 exceções | ✅ | Valores que não imprimem credencial no `toString`; `InvalidCredentials` e `InvalidRefreshToken` (401) e `AccountLocked` (423). |
+| `auth/service/Tokens.java`, `IssuedRefreshToken.java` e as 4 exceções | ✅ | Valores que não imprimem credencial no `toString`; `InvalidCredentials`, `InvalidRefreshToken` e `NotAuthenticated` (401) e `AccountLocked` (423). |
 | `auth/infra/JwtConfig.java` | ✅ | Chave HS256, encoder, decoder travado no algoritmo e conversão do claim `role` em `ROLE_*`. Loga que subiu. |
+| `auth/infra/JwtCurrentUserResolver.java` | ✅ | Desfaz a conversão do `JwtConfig`: lê o id do `sub` e o papel das mesmas authorities que o `hasRole` enxerga. Qualquer dúvida — anônimo, `sub` não numérico, papel desconhecido ou repetido — vira 401, nunca um default. |
 | `auth/infra/JdbcLoginLockoutRepository.java` | ✅ | Contador de falhas com `INSERT … ON CONFLICT DO UPDATE` atômico, que recomeça após bloqueio vencido ou falha antiga. |
 | `auth/infra/SpringDataRefreshTokenRepository.java`, `JpaRefreshTokenRepository.java` | ✅ | Refresh tokens em JPA. A busca para renovar exige transação aberta, senão a trava não valeria. |
 | `auth/web/v1/AuthController.java` + `dto/` | ✅ | `POST /api/v1/auth/login`, `/refresh` e `/logout`, públicos também no contrato OpenAPI. |
+| `team/package-info.java` | ✅ | Declara o módulo `team` e registra que ele depende de `user` e `auth`, sem ciclo. |
+| `team/TeamFacade.java` | ✅ | Única porta do módulo: "participa desta equipe?" e "lidera?", lidos do banco a cada chamada. É o que `ticket` vai consumir. Ordem `(teamId, userId)` em todo o módulo. |
+| `team/domain/Team.java` | ✅ | Entidade da equipe. Apara o nome e guarda a caixa digitada; descrição em branco vira ausente. |
+| `team/domain/TeamMembership.java`, `TeamRole.java` | ✅ | Vínculo de um usuário com uma equipe, papel `MEMBER` ou `LEAD`. Sempre nasce `MEMBER`; as duas pontas não mudam depois de gravadas. |
+| `team/domain/TeamRepository.java`, `TeamMembershipRepository.java` | ✅ | Portas de persistência. A busca por nome ignora a caixa, como o índice único da V2. |
+| `team/service/TeamService.java` | ✅ | Toda a regra de quem gerencia equipe: não-membro recebe 404, como se a equipe não existisse; membro comum, 403. `MEMBER` é gerenciado por admin ou pelo `LEAD` da equipe. Criar equipe e mexer em liderança é só de admin. Solicitante não entra em equipe. |
+| `team/service/TeamDetails.java` e as 6 exceções | ✅ | Equipe com os vínculos; `TeamNotFound` e `TeamMembershipNotFound` (404), `TeamActionForbidden` (403), `TeamNameAlreadyUsed`, `AlreadyTeamMember` e `IneligibleTeamMember` (409). |
+| `team/infra/` | ✅ | Spring Data e os dois adaptadores para as portas de domínio. |
+| `team/web/v1/TeamController.java` + `dto/` | ✅ | `POST /api/v1/teams`, `GET /api/v1/teams/{id}`, `POST .../members`, `PUT .../members/{userId}/role` e `DELETE .../members/{userId}`. Sem regra no `SecurityConfig`: ela depende de liderar aquela equipe e mora inteira no service. Sem listagem até a decisão de paginação. |
 
 ### `src/main/resources/`
 
@@ -127,7 +139,12 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `auth/service/*Test.java` | ✅ | Claims do token (sem equipes), rotação e reuso, ordem do login, rejeições de configuração e `toString` que não vaza credencial. |
 | `auth/infra/LoginLockoutRepositoryIT.java`, `RefreshTokenRepositoryIT.java` | ✅ | O SQL do contador e a revogação em massa contra Postgres real. |
 | `auth/web/v1/AuthControllerIT.java` | ✅ | Login, bloqueio, rotação e reuso pelo endpoint, olhando o banco para provar que as proteções sobrevivem à exceção. |
+| `auth/infra/JwtCurrentUserResolverTest.java` | ✅ | O ator lido do token, e cada jeito de a identidade ser duvidosa virar 401. |
+| `team/domain/*Test.java`, `team/service/TeamServiceTest.java` | ✅ | Invariantes da equipe e do vínculo; cada regra de permissão, inclusive que a recusa acontece antes de consultar o alvo. |
+| `team/infra/TeamRepositoryIT.java` | ✅ | Alguém em duas equipes com vínculos independentes, busca de nome sem caixa, ordem dos vínculos e larguras da V2. |
+| `team/web/v1/TeamControllerIT.java` | ✅ | Os casos negativos pelo endpoint, olhando o banco depois da recusa: membro comum, líder de outra equipe e solicitante não gerenciam. Equipe invisível e inexistente dão o mesmo corpo; promoção e remoção valem na hora, com o mesmo token. |
 | `support/UserBuilder.java` | ✅ | Usuário de teste em uma linha, com e-mail único e id sintético — sem o id, `BaseEntity.equals` faria teste de visibilidade passar por acidente. Não conhece equipe. |
+| `support/TeamBuilder.java` | ✅ | Equipe de teste com os vínculos em uma linha, recebendo ids de usuário e não a entidade `User`. Monta alguém em duas equipes, o caso que a Fase 5 exercita. |
 | `support/AuthTokens.java` | ✅ | Token válido e cada forja de token inválido num lugar só, assinando com o encoder da própria aplicação. |
 | `support/SecureMockMvc.java` | ✅ | MockMvc sobre o contexto com a cadeia de segurança real, sem precisar do `spring-boot-webmvc-test`. |
 | `support/PostgresContainer.java` | ✅ | Container Postgres 16 reaproveitado, ligado ao contexto por `@ServiceConnection`. |
@@ -239,6 +256,7 @@ ainda são planejados.
 | Adicionar um endpoint | `backend/.../<feature>/web/v1/` e depois regenerar os tipos do frontend |
 | Trocar o armazenamento de um módulo | Novo adaptador em `backend/.../<feature>/infra/`; a interface fica em `domain/` |
 | Mudar login / emissão de token | `backend/.../auth/` ✅ e `frontend/src/lib/auth/` |
+| Mudar quem gerencia uma equipe | `backend/.../team/service/TeamService.java` ✅ |
 | Mudar quem pode chamar qual rota | `backend/.../config/SecurityConfig.java` ✅ |
 | Mudar uma tela | `frontend/src/modules/{módulo}/components/pages/` (composição) e `frontend/src/app/` (auth e dados) |
 | Criar um componente novo | `frontend/src/modules/{módulo}/components/{atoms\|molecules\|organisms}/` |
@@ -247,7 +265,7 @@ ainda são planejados.
 | Mudar cor, espaçamento ou raio | `frontend/src/styles/tokens.css` ✅ |
 | Mudar variáveis de ambiente ou containers | `docker/` ✅, os `.env.example` ✅ e, na mesma alteração, `k8s/base/` ✅ |
 | Entender o que testar antes e o que testar depois | [CLAUDE.md](CLAUDE.md#testes) |
-| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ — `IntegrationTest`, `UserBuilder`, `AuthTokens`, `SecureMockMvc` |
+| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ — `IntegrationTest`, `UserBuilder`, `TeamBuilder`, `AuthTokens`, `SecureMockMvc` |
 | Escrever um teste E2E | `e2e/specs/` ✅ |
 
 ---
@@ -256,12 +274,6 @@ ainda são planejados.
 
 O porquê de cada decisão está em [CLAUDE.md](CLAUDE.md#arquitetura-e-versionamento).
 Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra` são únicos.
-
-### `auth/` — autenticação
-
-| Caminho | O que fará |
-|---|---|
-| `auth/AuthFacade.java`, `auth/CurrentUser.java` | API pública: quem está pedindo, lido do token (id e papel). Entra na Fase 3, com o primeiro consumidor. |
 
 ### `user/` — usuários
 
@@ -273,13 +285,8 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 
 | Caminho | O que fará |
 |---|---|
-| `team/TeamFacade.java` | API pública: responde "este usuário é membro desta equipe?" e "quem lidera esta equipe?" — é o que `ticket` consome para decidir visibilidade. |
-| `team/domain/Team.java` | Entidade da equipe. |
-| `team/domain/TeamMembership.java` | Vincula usuário e equipe com papel `MEMBER` ou `LEAD`. |
-| `team/domain/TeamMembershipRepository.java` | Interface de consulta de vínculos. |
-| `team/infra/JpaTeamMembershipRepository.java` | Implementa a interface acima sobre Spring Data. |
-| `team/service/TeamService.java` | Criação de equipes e gestão de membros. |
-| `team/web/v1/TeamController.java` | Endpoints de equipe. |
+| `TeamFacade`: perguntas em conjunto | "De quais equipes esta pessoa participa?" e "quais lidera?", para o filtro de listagem de tickets. Entram na Fase 5, com o primeiro consumidor. |
+| `GET /api/v1/teams` | Listagem de equipes. Espera a decisão de paginação da Fase 4, junto com a de usuários. |
 
 ### `ticket/` — o núcleo do domínio
 
@@ -343,7 +350,6 @@ A estrutura espelha a de `main/`. A estratégia está em [CLAUDE.md](CLAUDE.md#t
 | Caminho | O que fará |
 |---|---|
 | `support/TicketBuilder.java` | Monta tickets para teste em uma linha, escondendo o setup de equipe, solicitante e SLA. |
-| `support/TeamBuilder.java` | Mesmo papel do `UserBuilder` para equipes e vínculos, na Fase 3. Precisa montar alguém em duas equipes — é o caso que a Fase 5 exercita. |
 | `ticket/service/` | Testes unitários das regras de transição, atribuição e acesso. |
 | `ticket/domain/TicketRepositoryContractTest.java` | Testes de contrato escritos contra a **interface** do repositório. Qualquer adaptador futuro roda esta mesma suíte sem reescrita. |
 | `ticket/infra/TicketSpecificationsIT.java` | **Escrito antes da implementação.** Verifica contra Postgres real que a listagem não devolve ticket que o usuário não pode ver. |

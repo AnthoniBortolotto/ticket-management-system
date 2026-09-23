@@ -5,6 +5,10 @@
  * A divisao importa: este modulo nunca ve o hash de senha — ele pergunta
  * "esta senha confere?" a {@code UserFacade} e recebe so o resultado.
  *
+ * <p>A superficie publica e {@code AuthFacade} e {@code CurrentUser}: quem esta pedindo,
+ * com id e papel global. {@code domain}, {@code service}, {@code infra} e {@code web} sao
+ * internos.
+ *
  * <p>O token carrega apenas o subject e o papel global. Equipe <strong>nao</strong> entra:
  * o conteudo de um JWT so muda quando ele expira, e congelar vinculo de equipe numa
  * credencial significa que tirar alguem de uma equipe nao tem efeito imediato. A

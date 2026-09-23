@@ -1,13 +1,17 @@
 /**
- * Equipes e vinculos de membro. Responde quem lidera e quem pertence a cada equipe.
+ * Equipes e vinculos de membro. Responde quem participa e quem lidera cada equipe.
  *
- * <p>Modulo ainda sem implementacao. Ao criar a primeira classe aqui, anote este pacote
- * com {@code @ApplicationModule(displayName = "Equipes")}: a partir dai o Modulith passa a
- * tratar a raiz deste pacote como API publica e {@code domain}, {@code service},
- * {@code infra} e {@code web} como internos, quebrando o build se outro modulo os
+ * <p>A superficie publica e {@code TeamFacade}; {@code domain}, {@code service},
+ * {@code infra} e {@code web} sao internos e o Modulith quebra o build se outro modulo os
  * importar.
  *
- * <p>Anotar um pacote vazio nao funciona — o ArchUnit falha ao refletir sobre um
- * {@code package-info} solitario.
+ * <p>Depende de {@code user}, para saber se quem vai entrar numa equipe existe e que papel
+ * tem, e de {@code auth}, para saber quem esta pedindo. Nenhum dos dois depende daqui — o
+ * grafo continua aciclico.
+ *
+ * <p>As entidades guardam {@code Long userId} puro, sem {@code @ManyToOne User}:
+ * referenciar classe interna de outro modulo quebraria o build. A cascata ao apagar o
+ * usuario e a do banco.
  */
+@org.springframework.modulith.ApplicationModule(displayName = "Equipes")
 package com.ticketsystem.team;

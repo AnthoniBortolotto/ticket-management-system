@@ -26,6 +26,8 @@ Estas saíram de discussão e não devem ser reabertas sem motivo novo.
 | Formato de erro por módulo | Exceção estende `DomainException` com um `ProblemKind`; nenhum módulo registra `@ExceptionHandler` próprio | `common/error/` |
 | Primeiro usuário | Migration de seed, com dados de demonstração em location separada, só no perfil `dev` | `V3__seed_admin_user.sql` |
 | Vínculo com equipe | Um usuário participa de várias equipes; UNIQUE no par | `V2__create_users_and_teams.sql` |
+| Gestão de equipe | Criar equipe e mexer em liderança: só admin. `MEMBER`: admin ou `LEAD` da equipe. Não-membro recebe 404, membro sem permissão recebe 403 | `team/service/TeamService.java` |
+| Quem entra em equipe | Agente e admin; solicitante nunca | `team/service/TeamService.java` |
 | Infra local | Compose desenvolve, Kubernetes demonstra | [ADR 0002](adr/0002-infra-local-compose-e-kubernetes.md) |
 | Versões da stack | Ver a tabela e as armadilhas confirmadas | [ADR 0001](adr/0001-versoes-da-stack.md) |
 
@@ -117,21 +119,38 @@ Armadilhas confirmadas rodando, que valem daqui para frente:
 
 ## Fase 3 — `team`
 
-`ticket` depende dele para decidir visibilidade, então vem antes.
+**Concluída.** O que ela entregou está no [CODEBASE-MAP](../CODEBASE-MAP.md): o módulo
+`team` inteiro, `AuthFacade` e `CurrentUser`, o `TeamBuilder` e os testes do caso negativo
+pelo endpoint.
 
-- [ ] `team/domain/`: `Team`, `TeamMembership`, `TeamMembershipRepository`.
-- [ ] `support/TeamBuilder`: idem, vindo da Fase 1. Precisa montar alguém em duas equipes
-      — é o caso que a Fase 5 vai exercitar.
-- [ ] `team/service/TeamService`: criar equipe, adicionar e remover membro, promover a
-      `LEAD`.
-- [ ] `team/TeamFacade`: responde "é membro?" e "quem lidera?". É a única porta que
-      `ticket` enxerga.
-- [ ] `auth/AuthFacade` + `auth/CurrentUser`: quem está pedindo, lido do token. Veio da
-      Fase 2 — entra aqui porque o `TeamController` é o primeiro que precisa saber se quem
-      pede lidera a equipe.
-- [ ] `team/web/v1/TeamController` + DTOs `record`.
-- [ ] Teste de integração do caso negativo: quem não é admin nem `LEAD` não gerencia
-      membros.
+Decisões da fase, que não estavam escritas aqui:
+
+- **Quem gerencia o quê.** Adicionar e remover `MEMBER` cabe ao admin ou ao `LEAD`
+  *daquela* equipe. Tudo que cria ou desfaz liderança — promover, rebaixar, remover um
+  líder, inclusive a si mesmo — é só de admin: o líder enxerga os tickets que saíram da
+  equipe para o modo exclusivo, e conceder isso não é decisão de um par. Criar equipe
+  também é só de admin. **Afrouxar depois é barato; apertar depois quebra quem já usa.**
+- **404 para quem está de fora, 403 para quem está dentro.** Quem não é admin nem
+  participa da equipe recebe, em tudo sobre ela, o mesmo corpo de uma equipe inexistente.
+  Um 403 confirmaria que o id existe. É o mesmo raciocínio que a visibilidade de tickets
+  vai seguir na Fase 5.
+- **Solicitante não entra em equipe.** Membro enxerga comentário interno, e solicitante
+  nunca pode. Admin pode ser membro: ele já vê tudo, e o vínculo não lhe dá nada novo.
+- **A regra de equipe mora inteira no `TeamService`**, e não parte no `SecurityConfig`.
+  Por URL só dá para decidir pelo papel global; "lidera esta equipe?" depende do banco.
+- **O ator é parâmetro do service.** O controller o obtém da `AuthFacade`; o service não
+  lê o contexto de segurança. É o que deixa a regra testável sem Spring — a Fase 5 deve
+  seguir o mesmo formato no `TicketService`.
+- **`CurrentUser` lê o papel das authorities, e não do claim cru.** São as mesmas que o
+  `hasRole` enxerga, então a regra por URL e a do service nunca discordam sobre o papel.
+- **A `TeamFacade` só tem as perguntas pontuais.** "De quais equipes esta pessoa
+  participa?" e "quais lidera?", que o filtro de listagem vai precisar, entram na Fase 5,
+  com o primeiro consumidor.
+- **Sem `GET /api/v1/teams`**, pelo mesmo motivo da listagem de usuários: devolver lista
+  agora e paginar depois mudaria o formato da resposta, e isso já seria uma `v2`.
+- **O vínculo na resposta traz só `userId` e `role`.** Nome e e-mail exigiriam uma consulta
+  a `user` por membro; entram quando a tela da Fase 8 precisar, com consulta em lote.
+  Campo novo não quebra contrato.
 
 ## Fase 4 — `ticket`: núcleo
 
@@ -168,6 +187,12 @@ vazamento de dados, não bug de tela.
       Ao ir para exclusivo, preserva `origin_team_id`; ao voltar, valida que quem pede é
       o responsável, o líder da equipe de origem ou um admin.
 - [ ] `TicketAssignmentChanged` publicado a cada reatribuição.
+- [ ] `TeamFacade`: "de quais equipes esta pessoa participa?" e "quais lidera?", para o
+      filtro da listagem. Consultado por requisição, nunca lido do token.
+- [ ] Decidir o que acontece com o ticket quando o `current_assignee_id` sai da equipe. Hoje
+      remover um membro não olha ticket nenhum — `team` não sabe que tickets existem, e
+      deve continuar sem saber: a saída provável é `team` publicar `TeamMembershipRemoved` e
+      `ticket` escutar.
 - [ ] Comentário interno nunca chega ao solicitante — teste de integração pelo endpoint,
       não só unitário do service.
 
@@ -255,6 +280,11 @@ não deve impedi-los, mas eles **não entram**. Se parecerem necessários, pergu
   uma exige revisitar a outra — considere um teste que rode os mesmos cenários pelos
   dois caminhos.
 - **Não há CI.** A disciplina de rodar tudo antes de commitar é a única proteção.
+- **Duas requisições simultâneas criando a mesma equipe, ou o mesmo vínculo, dão 500.** A
+  checagem prévia devolve 409, mas entre ela e o `INSERT` a outra pode gravar, e aí quem
+  recusa é o índice único — sem tradução para 409. O mesmo vale para e-mail de usuário.
+  O dado nunca fica inconsistente; só a resposta sai errada. Traduzir violação de
+  constraint no advice resolve os três de uma vez.
 - **As imagens Docker nunca foram construídas.** Podem conter erros que só aparecem na
   primeira tentativa real.
 - **Bloqueio por conta é vetor de negação de serviço.** Quem souber o e-mail de alguém o
