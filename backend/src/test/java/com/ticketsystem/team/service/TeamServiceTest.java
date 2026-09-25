@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +14,8 @@ import com.ticketsystem.auth.CurrentUser;
 import com.ticketsystem.common.error.DomainException;
 import com.ticketsystem.common.error.ProblemKind;
 import com.ticketsystem.support.TeamBuilder;
+import com.ticketsystem.team.TeamMembershipRemoved;
+import com.ticketsystem.team.UserTeams;
 import com.ticketsystem.team.domain.Team;
 import com.ticketsystem.team.domain.TeamMembership;
 import com.ticketsystem.team.domain.TeamMembershipRepository;
@@ -21,8 +24,11 @@ import com.ticketsystem.team.domain.TeamRole;
 import com.ticketsystem.user.UserAccount;
 import com.ticketsystem.user.UserFacade;
 import com.ticketsystem.user.UserRole;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -33,6 +39,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * Quem pode fazer o que numa equipe, com repositorios e a fachada de usuarios mockados.
@@ -58,6 +65,12 @@ class TeamServiceTest {
 
     @Mock
     private UserFacade usuarios;
+
+    @Mock
+    private ApplicationEventPublisher eventos;
+
+    @Mock
+    private Clock relogio;
 
     @InjectMocks
     private TeamService service;
@@ -266,9 +279,15 @@ class TeamServiceTest {
             TeamMembership alvo = vinculo(NOVATO, TeamRole.MEMBER);
             when(vinculos.find(equipeId, NOVATO)).thenReturn(Optional.of(alvo));
 
+            Instant agora = Instant.parse("2026-09-25T12:00:00Z");
+            when(relogio.instant()).thenReturn(agora);
+
             service.removeMember(LIDER, equipeId, NOVATO);
 
             verify(vinculos).delete(alvo);
+            // E o que permite a ticket limpar o responsavel atual sem team saber que tickets
+            // existem: team so conta o que aconteceu.
+            verify(eventos).publishEvent(new TeamMembershipRemoved(equipeId, NOVATO, LIDER.id(), agora));
         }
 
         @Test
@@ -317,6 +336,7 @@ class TeamServiceTest {
                     .isInstanceOf(TeamActionForbiddenException.class);
             verify(vinculos, never()).find(equipeId, NOVATO);
             verify(vinculos, never()).delete(any());
+            verifyNoInteractions(eventos);
         }
 
         @Test
@@ -414,6 +434,29 @@ class TeamServiceTest {
 
             assertThat(service.exists(equipeId)).isTrue();
             assertThat(service.exists(999L)).isFalse();
+        }
+
+        @Test
+        @DisplayName("as equipes de alguem separam onde participa de onde lidera")
+        void equipesDeAlguem() {
+            // Uma consulta so, e nao uma por equipe: e o que o filtro da listagem de tickets
+            // pede a cada requisicao.
+            when(vinculos.findByUser(NOVATO)).thenReturn(List.of(
+                    TeamBuilder.membership(1L, NOVATO, TeamRole.MEMBER),
+                    TeamBuilder.membership(2L, NOVATO, TeamRole.LEAD)));
+
+            UserTeams equipes = service.teamsOf(NOVATO);
+
+            assertThat(equipes.memberOf()).containsExactlyInAnyOrder(1L, 2L);
+            assertThat(equipes.leads()).containsExactly(2L);
+        }
+
+        @Test
+        @DisplayName("quem nao participa de nada tem conjuntos vazios, e nao nulos")
+        void semEquipes() {
+            when(vinculos.findByUser(NOVATO)).thenReturn(List.of());
+
+            assertThat(service.teamsOf(NOVATO)).isEqualTo(new UserTeams(Set.of(), Set.of()));
         }
 
         @Test

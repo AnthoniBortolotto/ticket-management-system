@@ -1,6 +1,7 @@
 package com.ticketsystem.ticket.domain;
 
 import com.ticketsystem.common.domain.BaseEntity;
+import com.ticketsystem.ticket.TicketAssignment;
 import com.ticketsystem.ticket.TicketStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -15,8 +16,9 @@ import jakarta.persistence.Version;
  * <p><strong>Dois modos de atribuicao, sempre exatamente um</strong> (CLAUDE.md#atribuicao):
  * {@code assignedTeamId} preenchido e o modo equipe; {@code exclusiveAssigneeId}, o modo
  * exclusivo, com a equipe de origem preservada em {@code originTeamId}. A V5 garante isso
- * por CHECK; aqui, nenhuma operacao publica sai de um estado valido. Nesta fase o ticket so
- * nasce e vive em modo equipe — a troca de modo e da Fase 5.
+ * por CHECK; aqui, nenhuma operacao publica sai de um estado valido. As operacoes de
+ * atribuicao conferem o <em>modo</em>; <em>quem</em> pode pedi-las, e se o destino e elegivel,
+ * e decisao do service.
  *
  * <p>Os ids de pessoa e de equipe sao {@code Long} puros, sem {@code @ManyToOne}: referenciar
  * classe interna de {@code user} ou {@code team} quebraria o build. A integridade e a das
@@ -116,6 +118,76 @@ public class Ticket extends BaseEntity {
 
     public boolean isInTeamMode() {
         return assignedTeamId != null;
+    }
+
+    /** Os quatro campos de atribuicao, como estao agora. */
+    public TicketAssignment assignment() {
+        return new TicketAssignment(assignedTeamId, currentAssigneeId, exclusiveAssigneeId, originTeamId);
+    }
+
+    /**
+     * Marca quem esta atuando agora. O ticket continua da equipe, e qualquer membro pode tomar
+     * o lugar — por isso nao ha checagem de "ja tem responsavel".
+     */
+    public void assignCurrent(Long userId) {
+        exigirModoEquipe();
+        this.currentAssigneeId = exigirId(userId, "responsavel atual");
+    }
+
+    /** Ninguem atuando: o ticket fica na equipe, esperando alguem assumir. */
+    public void clearCurrent() {
+        exigirModoEquipe();
+        this.currentAssigneeId = null;
+    }
+
+    /**
+     * Tira o ticket da equipe e o entrega a uma pessoa so. A equipe perde o acesso, mas fica
+     * guardada como origem: o lider dela continua enxergando o ticket, e e para la que ele volta.
+     */
+    public void makeExclusive(Long assigneeId) {
+        exigirModoEquipe();
+        Long responsavel = exigirId(assigneeId, "responsavel exclusivo");
+        this.originTeamId = assignedTeamId;
+        this.assignedTeamId = null;
+        this.currentAssigneeId = null;
+        this.exclusiveAssigneeId = responsavel;
+    }
+
+    /** Devolve o ticket a equipe de origem, sem responsavel atual. */
+    public void returnToTeam() {
+        if (isInTeamMode()) {
+            throw AssignmentConflictException.notInExclusiveMode();
+        }
+        this.assignedTeamId = originTeamId;
+        this.originTeamId = null;
+        this.exclusiveAssigneeId = null;
+    }
+
+    /**
+     * Passa o ticket para outra equipe. O responsavel atual sai junto: ele e da equipe antiga,
+     * e deixa-lo marcado apontaria para alguem que nem enxerga mais o ticket.
+     */
+    public void transferTo(Long teamId) {
+        exigirModoEquipe();
+        Long destino = exigirId(teamId, "equipe de destino");
+        if (destino.equals(assignedTeamId)) {
+            throw AssignmentConflictException.alreadyInTeam();
+        }
+        this.assignedTeamId = destino;
+        this.currentAssigneeId = null;
+    }
+
+    private void exigirModoEquipe() {
+        if (!isInTeamMode()) {
+            throw AssignmentConflictException.notInTeamMode();
+        }
+    }
+
+    private static Long exigirId(Long id, String campo) {
+        if (id == null) {
+            throw new IllegalArgumentException(campo + " e obrigatorio");
+        }
+        return id;
     }
 
     public String getTitle() {

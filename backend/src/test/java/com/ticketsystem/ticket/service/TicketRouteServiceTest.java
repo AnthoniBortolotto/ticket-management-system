@@ -63,8 +63,8 @@ class TicketRouteServiceTest {
         when(equipes.exists(99L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.route(TicketCategory.ACCESS, 99L))
-                .isInstanceOf(RouteTeamNotFoundException.class)
-                .extracting(e -> ((RouteTeamNotFoundException) e).kind())
+                .isInstanceOf(UnknownTeamException.class)
+                .extracting(e -> ((UnknownTeamException) e).kind())
                 .isEqualTo(ProblemKind.INVALID);
         verify(rotas, never()).save(any());
     }

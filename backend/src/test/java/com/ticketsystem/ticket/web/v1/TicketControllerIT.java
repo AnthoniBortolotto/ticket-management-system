@@ -144,6 +144,54 @@ class TicketControllerIT {
                 .andExpect(jsonPath("$.errors[0].field").value("title"));
     }
 
+    @Test
+    @DisplayName("o createdAt da resposta de criacao e o mesmo que o GET devolve depois")
+    void createdAtEstavel() throws Exception {
+        // O Postgres guarda microssegundos; sem truncar na auditoria, o POST devolvia o valor de
+        // memoria, com mais casas, e o mesmo ticket tinha dois createdAt.
+        String criado = abrir(ana, "ACCESS").andReturn().getResponse().getContentAsString();
+        Number id = JsonPath.read(criado, "$.id");
+
+        String lido = mvc.perform(como(ana, get("/api/v1/tickets/{id}", id.longValue())))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat((String) JsonPath.read(lido, "$.createdAt")).isEqualTo(JsonPath.read(criado, "$.createdAt"));
+    }
+
+    // --- listar ---------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a listagem traz so o que a pessoa ve, no formato de pagina da API")
+    void listagemPaginada() throws Exception {
+        Long daAna = ticketDaAna(TicketStatus.OPEN);
+        Long doBruno = transacao.execute(s -> TicketBuilder.aTicket().requestedBy(bruno.getId())
+                .assignedToTeam(equipe).persistIn(em).getId());
+
+        mvc.perform(como(ana, get("/api/v1/tickets")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(daAna))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                // Nada da estrutura do Spring Data vaza para o contrato.
+                .andExpect(jsonPath("$.pageable").doesNotExist());
+
+        mvc.perform(como(igor, get("/api/v1/tickets")))
+                .andExpect(jsonPath("$.content[?(@.id == %d || @.id == %d)]".formatted(daAna, doBruno)).isEmpty());
+    }
+
+    @Test
+    @DisplayName("pagina negativa e tamanho fora de 1..100 sao 400")
+    void limitesDaPagina() throws Exception {
+        for (String consulta : new String[] {"page=-1", "size=0", "size=101"}) {
+            mvc.perform(como(ana, get("/api/v1/tickets?" + consulta)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+        }
+    }
+
     // --- consultar ------------------------------------------------------------------------
 
     @Test

@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -46,6 +47,18 @@ class EventPublicationIT {
 
     @Autowired
     TransactionTemplate transacao;
+
+    @Autowired
+    Environment ambiente;
+
+    @Test
+    void pendenteEReentregueNoProximoStart() {
+        // O default do Modulith e false. Com ele, um listener que falhasse deixaria o evento
+        // pendente para sempre, sem erro nenhum no start seguinte. Nao da para reiniciar o
+        // contexto dentro do teste; o que se prova aqui e que a configuracao foi lida.
+        assertThat(ambiente.getProperty("spring.modulith.events.republish-outstanding-events-on-restart", Boolean.class))
+            .isTrue();
+    }
 
     @Test
     void oEventoEEntregueAoListenerEDepoisArquivado() throws Exception {

@@ -15,11 +15,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>A ordem dos parametros e sempre {@code (teamId, userId)}, como nas URLs e no
  * repositorio. Sao dois {@code Long}; uma troca compila e responde sobre a pessoa errada.
- *
- * <p>Ainda faltam as perguntas em conjunto — "de quais equipes esta pessoa participa?" —
- * que o filtro de listagem de tickets vai precisar. Entram na Fase 5, com o primeiro
- * consumidor.
- */
+ * */
 @Component
 public class TeamFacade {
 
@@ -35,6 +31,15 @@ public class TeamFacade {
      */
     public boolean exists(Long teamId) {
         return service.exists(teamId);
+    }
+
+    /**
+     * Onde a pessoa participa e onde lidera. Para o filtro da listagem de tickets, que
+     * precisa dos conjuntos inteiros para decidir na query — e nao de uma pergunta por
+     * ticket.
+     */
+    public UserTeams teamsOf(Long userId) {
+        return service.teamsOf(userId);
     }
 
     /** Participa da equipe, como membro ou como lider. */

@@ -69,6 +69,11 @@ spring:
       # ela pertence ao registro JDBC, e este projeto usa o JPA. O schema vem da
       # migration V1 e o `ddl-auto: validate` confere.
       completion-mode: archive
+      # Reentrega no start o que um listener nao concluiu. O default e false — sem isto, um
+      # listener que falhasse deixaria o evento pendente para sempre, e a promessa de
+      # "reprocessado no proximo start" do CLAUDE.md seria so texto. EventPublicationIT
+      # confere que a propriedade foi lida.
+      republish-outstanding-events-on-restart: true
 
   jackson:
     # Boot 4 usa Jackson 3 (tools.jackson). O formato das datas fica em JacksonConfig:

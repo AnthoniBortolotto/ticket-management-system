@@ -30,9 +30,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
  * As assercoes saem da tabela de visibilidade e da decisao da Fase 4 sobre o solicitante,
  * nao do codigo.
  *
- * <p>O modo exclusivo ainda nao tem operacao — ela e da Fase 5 —, mas a regra ja precisa
- * falhar fechada diante dele: um ticket nesse modo, criado por script ou por um adaptador
- * futuro, nao pode ficar visivel para a equipe de origem.
+ * <p>Em modo exclusivo a equipe de origem perde o acesso; ficam o responsavel exclusivo e o
+ * lider da origem, que alem de ver tambem atua (decisao da Fase 5). O
+ * {@code TicketSpecificationsIT} confere que a listagem em SQL concorda com cada linha daqui.
  */
 @ExtendWith(MockitoExtension.class)
 class TicketAccessPolicyTest {
@@ -45,6 +45,8 @@ class TicketAccessPolicyTest {
     private static final CurrentUser MEMBRO = new CurrentUser(20L, UserRole.AGENT);
     private static final CurrentUser DE_OUTRA_EQUIPE = new CurrentUser(21L, UserRole.AGENT);
     private static final CurrentUser ADMIN = new CurrentUser(1L, UserRole.ADMIN);
+    private static final CurrentUser LIDER = new CurrentUser(30L, UserRole.AGENT);
+    private static final CurrentUser RESPONSAVEL_EXCLUSIVO = new CurrentUser(31L, UserRole.AGENT);
 
     @Mock
     private TeamFacade equipes;
@@ -61,6 +63,9 @@ class TicketAccessPolicyTest {
         // que ela nao foi consultada.
         lenient().when(equipes.isMember(EQUIPE, MEMBRO.id())).thenReturn(true);
         lenient().when(equipes.isMember(OUTRA_EQUIPE, DE_OUTRA_EQUIPE.id())).thenReturn(true);
+        lenient().when(equipes.isMember(EQUIPE, LIDER.id())).thenReturn(true);
+        lenient().when(equipes.isLead(EQUIPE, LIDER.id())).thenReturn(true);
+        lenient().when(equipes.isLead(OUTRA_EQUIPE, DE_OUTRA_EQUIPE.id())).thenReturn(true);
     }
 
     // --- quem NAO ve ----------------------------------------------------------------------
@@ -175,5 +180,52 @@ class TicketAccessPolicyTest {
         assertThat(acesso.canHandle(DE_OUTRA_EQUIPE, doAgente)).isFalse();
         assertThat(acesso.canTransition(DE_OUTRA_EQUIPE, doAgente, TicketStatus.REOPENED)).isTrue();
         assertThat(acesso.canTransition(DE_OUTRA_EQUIPE, doAgente, TicketStatus.IN_PROGRESS)).isFalse();
+    }
+
+    // --- modo exclusivo -------------------------------------------------------------------
+
+    @Test
+    @DisplayName("em modo exclusivo, o responsavel ve e atua — e so no ticket dele")
+    void responsavelExclusivoAtua() {
+        Ticket dele = exclusivoDe(RESPONSAVEL_EXCLUSIVO);
+        Ticket deOutro = exclusivoDe(new CurrentUser(99L, UserRole.AGENT));
+
+        assertThat(acesso.canView(RESPONSAVEL_EXCLUSIVO, dele)).isTrue();
+        assertThat(acesso.canHandle(RESPONSAVEL_EXCLUSIVO, dele)).isTrue();
+        assertThat(acesso.canView(RESPONSAVEL_EXCLUSIVO, deOutro)).isFalse();
+    }
+
+    @Test
+    @DisplayName("em modo exclusivo, o lider da origem ve e atua; o lider de outra equipe, nao")
+    void liderDaOrigemAtua() {
+        Ticket exclusivo = exclusivoDe(RESPONSAVEL_EXCLUSIVO);
+
+        assertThat(acesso.canView(LIDER, exclusivo)).isTrue();
+        assertThat(acesso.canHandle(LIDER, exclusivo)).isTrue();
+        // DE_OUTRA_EQUIPE lidera OUTRA_EQUIPE: liderar nao e papel global.
+        assertThat(acesso.canView(DE_OUTRA_EQUIPE, exclusivo)).isFalse();
+    }
+
+    // --- quem decide para onde o ticket vai -----------------------------------------------
+
+    @Test
+    @DisplayName("so o lider da equipe atual e o admin mandam o ticket para outro lugar")
+    void soLiderEAdminDespacham() {
+        assertThat(acesso.canDispatch(LIDER, ticket)).isTrue();
+        assertThat(acesso.canDispatch(ADMIN, ticket)).isTrue();
+        assertThat(acesso.canDispatch(MEMBRO, ticket)).isFalse();
+        assertThat(acesso.canDispatch(DE_OUTRA_EQUIPE, ticket)).isFalse();
+        assertThat(acesso.canDispatch(SOLICITANTE, ticket)).isFalse();
+    }
+
+    @Test
+    @DisplayName("ticket exclusivo nao se despacha de novo, nem pelo lider da origem: devolve antes")
+    void exclusivoNaoSeDespacha() {
+        // Admin despacha qualquer ticket; se o modo permite, e o dominio que diz.
+        assertThat(acesso.canDispatch(LIDER, exclusivoDe(RESPONSAVEL_EXCLUSIVO))).isFalse();
+    }
+
+    private Ticket exclusivoDe(CurrentUser responsavel) {
+        return TicketBuilder.aTicket().requestedBy(SOLICITANTE.id()).inExclusiveMode(responsavel.id(), EQUIPE).build();
     }
 }

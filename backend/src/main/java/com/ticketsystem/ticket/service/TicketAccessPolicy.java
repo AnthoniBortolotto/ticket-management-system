@@ -12,22 +12,21 @@ import org.springframework.stereotype.Component;
  * Quem pode ver, atender e mover um ticket <strong>ja carregado</strong>.
  *
  * <p>E metade da regra de visibilidade (CLAUDE.md#visibilidade). A outra metade, a mesma
- * regra em SQL para a listagem, chega na Fase 5 em {@code TicketSpecifications} — e as duas
- * precisam concordar, linha a linha. <strong>Mudou aqui, revise la.</strong>
+ * regra em SQL para a listagem, e o {@code TicketSpecifications} — e as duas precisam
+ * concordar, linha a linha; o {@code TicketSpecificationsIT} compara as duas caso a caso.
+ * <strong>Mudou aqui, mude la.</strong>
  *
- * <p>O que vale nesta fase:
  * <ul>
- *   <li><em>Admin</em> ve e atende tudo.</li>
+ *   <li><em>Admin</em> ve, atende e despacha tudo.</li>
  *   <li><em>Solicitante</em> sempre ve o proprio ticket, em qualquer modo, e so decide duas
  *       coisas: confirmar o fechamento e reabrir. Nunca atende — logo, nunca le nota
  *       interna.</li>
- *   <li><em>Membro da equipe</em> ve e atende os tickets em modo equipe dela.</li>
+ *   <li><em>Modo equipe:</em> membro da equipe ve e atende; o lider dela tambem despacha —
+ *       manda para o exclusivo ou para outra equipe.</li>
+ *   <li><em>Modo exclusivo:</em> a equipe perde o acesso. Veem e atuam o responsavel exclusivo
+ *       e o lider da equipe de origem. Nenhum dos dois despacha: para mudar o ticket de lugar,
+ *       ele volta para a equipe antes.</li>
  * </ul>
- *
- * <p><strong>Modo exclusivo falha fechado.</strong> A Fase 5 acrescenta o responsavel
- * exclusivo e o lider da equipe de origem. Ate la, um ticket nesse modo — que so um script
- * ou um adaptador futuro criaria — e visivel apenas para admin e solicitante. Faltar uma
- * regra aqui esconde um ticket; sobrar uma regra o vaza.
  *
  * <p>Papel {@code REQUESTER} nunca atende, mesmo com vinculo de equipe: a Fase 3 impede o
  * vinculo, mas um agente rebaixado a solicitante manteria o antigo, e passaria a ler notas
@@ -49,15 +48,35 @@ public class TicketAccessPolicy {
         return isRequester(ator, ticket) || canHandle(ator, ticket);
     }
 
-    /** Atende: le e escreve nota interna e move o ticket por qualquer transicao do fluxo. */
+    /**
+     * Atende: le e escreve nota interna, move o ticket por qualquer transicao do fluxo, cuida
+     * do responsavel atual e, no modo exclusivo, devolve o ticket a equipe.
+     */
     public boolean canHandle(CurrentUser ator, Ticket ticket) {
         if (ator.isAdmin()) {
             return true;
         }
-        if (ator.role() == UserRole.REQUESTER || !ticket.isInTeamMode()) {
+        if (ator.role() == UserRole.REQUESTER) {
             return false;
         }
-        return equipes.isMember(ticket.getAssignedTeamId(), ator.id());
+        if (ticket.isInTeamMode()) {
+            return equipes.isMember(ticket.getAssignedTeamId(), ator.id());
+        }
+        return ator.id().equals(ticket.getExclusiveAssigneeId()) || equipes.isLead(ticket.getOriginTeamId(), ator.id());
+    }
+
+    /**
+     * Decide para onde o ticket vai: modo exclusivo ou outra equipe. Admin, ou o lider da
+     * equipe em que o ticket esta. Em modo exclusivo ninguem alem do admin despacha — o
+     * ticket precisa voltar a equipe antes.
+     */
+    public boolean canDispatch(CurrentUser ator, Ticket ticket) {
+        if (ator.isAdmin()) {
+            return true;
+        }
+        return ator.role() != UserRole.REQUESTER
+                && ticket.isInTeamMode()
+                && equipes.isLead(ticket.getAssignedTeamId(), ator.id());
     }
 
     public boolean canTransition(CurrentUser ator, Ticket ticket, TicketStatus destino) {

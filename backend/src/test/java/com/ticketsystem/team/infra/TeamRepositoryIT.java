@@ -63,6 +63,9 @@ class TeamRepositoryIT {
 
         assertThat(vinculos.find(suporte.getId(), marina)).map(TeamMembership::getRole).contains(TeamRole.MEMBER);
         assertThat(vinculos.find(infra.getId(), marina)).map(TeamMembership::getRole).contains(TeamRole.LEAD);
+        assertThat(vinculos.findByUser(marina))
+                .extracting(TeamMembership::getTeamId)
+                .containsExactlyInAnyOrder(suporte.getId(), infra.getId());
 
         // Sair de uma nao mexe na outra.
         transacao.executeWithoutResult(s -> vinculos.delete(vinculos.find(suporte.getId(), marina).orElseThrow()));

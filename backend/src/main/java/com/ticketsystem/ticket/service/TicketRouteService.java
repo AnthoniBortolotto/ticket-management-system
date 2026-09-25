@@ -38,7 +38,7 @@ public class TicketRouteService {
     @Transactional
     public TicketRoute route(TicketCategory category, Long teamId) {
         if (!equipes.exists(teamId)) {
-            throw new RouteTeamNotFoundException();
+            throw new UnknownTeamException();
         }
         TicketRoute rota = rotas.findByCategory(category)
                 .map(existente -> {

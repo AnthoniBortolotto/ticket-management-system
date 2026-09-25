@@ -156,6 +156,10 @@ as demais vivem aqui e nos comentários do código que elas afetam.
   `spring-boot-test-autoconfigure` para `spring-boot-webmvc-test`, que não está no
   `pom.xml`: para testar a cadeia de segurança, use `support/SecureMockMvc`, que monta o
   `MockMvc` a partir do contexto sem dependência nova.
+- **O Modulith não reentrega evento pendente no start, por padrão.**
+  `spring.modulith.events.republish-outstanding-events-on-restart` vem `false`: um listener
+  que falhe deixa a publicação pendente para sempre, sem nada no log. Está ligada no
+  `application.yml`, e o `EventPublicationIT` confere que foi lida.
 - **Variável de ambiente ausente num placeholder de Flyway não dá erro.** Escrever
   `placeholders.x: ${VAR}` sem default e não definir `VAR` **não** derruba o boot: o
   binder do Spring deixa o texto `${VAR}` como valor, o Flyway o substitui no SQL e a

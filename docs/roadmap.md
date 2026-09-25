@@ -32,6 +32,10 @@ Estas saíram de discussão e não devem ser reabertas sem motivo novo.
 | Fluxo de status | O diagrama do README mais `IN_PROGRESS → RESOLVED` | `ticket/TicketStatus.java` |
 | O que o solicitante decide | Confirmar o fechamento (`RESOLVED → CLOSED`) e reabrir; o resto do fluxo é de quem atende | `ticket/service/TicketAccessPolicy.java` |
 | Ticket invisível | 404 com o mesmo corpo de um inexistente; 403 só para quem vê e não pode | `ticket/service/TicketService.java` |
+| Modo exclusivo | Líder da equipe ou admin manda, e só para quem participa da equipe. Veem e atuam o responsável e o líder da origem; a equipe perde o acesso | `ticket/service/TicketAccessPolicy.java` |
+| Transferência entre equipes | Líder da equipe atual ou admin; o responsável atual não vai junto | `ticket/service/TicketAssignmentService.java` |
+| Responsável atual | Qualquer membro da equipe designa qualquer membro; sair da equipe o limpa, por evento | `ticket/service/TicketAssignmentService.java` |
+| Formato de página | `PageResponse`: `content`, `page` a partir de zero, `size` (20, máximo 100), `totalElements`, `totalPages` | `common/web/PageResponse.java` |
 | Infra local | Compose desenvolve, Kubernetes demonstra | [ADR 0002](adr/0002-infra-local-compose-e-kubernetes.md) |
 | Versões da stack | Ver a tabela e as armadilhas confirmadas | [ADR 0001](adr/0001-versoes-da-stack.md) |
 
@@ -47,8 +51,9 @@ depois** — se alguma estiver errada, corrija antes da fase correspondente.
   enum não quebra contrato, então dá para crescer sem `v2`.
 - **Horário comercial global:** segunda a sexta, 09:00–18:00, `America/Sao_Paulo`.
   Feriados ficam fora do escopo — registre como limitação conhecida.
-- **Listagem de tickets:** paginada com `Page` do Spring Data, 20 por página, ordenada
-  por prioridade e depois por prazo de SLA mais próximo.
+- **Listagem de tickets:** 20 por página, ordenada por prioridade e depois por prazo de SLA
+  mais próximo. Até o SLA existir, o segundo critério é o mais antigo primeiro — a Fase 6
+  troca, sem mudar o formato da resposta.
 - **Senhas:** BCrypt via `PasswordEncoder` do Spring Security.
 
 ---
@@ -195,27 +200,36 @@ O que mudou em relação ao que estava escrito aqui:
 **A parte mais cara de errar do sistema inteiro.** Listar ticket de outra equipe é
 vazamento de dados, não bug de tela.
 
-- [ ] `ticket/infra/TicketSpecificationsIT` — **escrito antes da implementação**, contra
-      Postgres real. Um caso por linha da tabela de visibilidade do CLAUDE.md, cada um
-      afirmando o que a pessoa **não** vê.
-- [ ] `ticket/infra/TicketSpecifications`: a regra em SQL. Filtro na query, nunca em
-      memória depois de carregar tudo.
-- [ ] `ticket/service/TicketAccessPolicy`: **estender** a regra, que já existe para o modo
-      equipe, com o responsável exclusivo e o líder da equipe de origem. **As duas precisam
-      concordar** — incluindo a guarda de que papel `REQUESTER` nunca atende, mesmo com
-      vínculo de equipe. Se divergirem, alguém vê o que não deveria.
-- [ ] `GET /api/v1/tickets`: a listagem, paginada e filtrada na query. Fixa o formato de
-      paginação da API, que as listagens de usuários e equipes passam a seguir.
-- [ ] `ticket/service/TicketAssignmentService`: troca entre modo equipe e modo exclusivo.
-      Ao ir para exclusivo, preserva `origin_team_id`; ao voltar, valida que quem pede é
-      o responsável, o líder da equipe de origem ou um admin.
-- [ ] `TicketAssignmentChanged` publicado a cada reatribuição.
-- [ ] `TeamFacade`: "de quais equipes esta pessoa participa?" e "quais lidera?", para o
-      filtro da listagem. Consultado por requisição, nunca lido do token.
-- [ ] Decidir o que acontece com o ticket quando o `current_assignee_id` sai da equipe. Hoje
-      remover um membro não olha ticket nenhum — `team` não sabe que tickets existem, e
-      deve continuar sem saber: a saída provável é `team` publicar `TeamMembershipRemoved` e
-      `ticket` escutar.
+**Concluída.** O que ela entregou está no [CODEBASE-MAP](../CODEBASE-MAP.md): a regra de
+visibilidade em SQL e no ticket carregado, comparadas caso a caso; a listagem paginada; as
+cinco operações de atribuição com `TicketAssignmentChanged`; e a limpeza do responsável
+atual quando alguém sai da equipe.
+
+Como foi feito e o que mudou em relação ao que estava escrito aqui:
+
+- **O `TicketSpecificationsIT` foi visto falhar antes do filtro existir.** A listagem subiu
+  primeiro sem filtro nenhum, o teste falhou em 7 de 8 casos mostrando os tickets vazados,
+  e só então a regra foi escrita. O oitavo caso — a comparação, pessoa por pessoa e ticket
+  por ticket, entre a listagem e o `TicketAccessPolicy` — pegou a divergência seguinte: o
+  SQL já seguia a regra completa e a política do ticket carregado ainda falhava fechada no
+  modo exclusivo.
+- **Sem `JpaSpecificationExecutor`.** A ordem por prioridade não é coluna — `URGENT` vem
+  antes de `LOW`, e a coluna guarda o nome —, e o `Sort` do Spring Data só ordena por
+  propriedade. A listagem monta a consulta em Criteria no adaptador, com a mesma
+  `Specification` na página e na contagem, e a urgência sai da ordem do enum.
+- **As equipes chegam ao SQL como conjuntos lidos na hora pela `TeamFacade`**, e não por
+  subconsulta nas tabelas de `team`: a fronteira entre módulos vale no SQL também.
+- **O líder da equipe de origem atua no ticket exclusivo**, além de ver e devolver —
+  decisão desta fase. Nem ele nem o responsável despacham de novo: para mudar o ticket de
+  lugar, ele volta para a equipe antes.
+- **Responsável exclusivo não perde o ticket ao sair da equipe de origem.** O acesso dele
+  vem da atribuição, não do vínculo. Só o responsável *atual*, que é conceito do modo
+  equipe, é limpo.
+- **A reentrega de eventos no start estava desligada.** O Modulith traz
+  `republish-outstanding-events-on-restart` como `false`, e o CLAUDE.md prometia o
+  contrário. Ligada nesta fase, com o primeiro listener de verdade.
+- **O `createdAt` agora é truncado em microssegundos** na auditoria, e o `POST` e o `GET`
+  devolvem o mesmo valor. Era o risco anotado na Fase 4.
 
 ## Fase 6 — `sla` e `audit`
 
@@ -223,6 +237,11 @@ Os dois escutam eventos. `ticket` não sabe que eles existem, e é isso que faz 
 ser só mais um listener no futuro.
 
 - [ ] `V6__create_audit_events.sql`, `V7__create_sla.sql`. Os comentários já estão na `V5`.
+- [ ] `audit` escuta `TicketStatusChanged` **e** `TicketAssignmentChanged` — o segundo já é
+      publicado, com o antes e o depois inteiros.
+- [ ] Trocar o segundo critério da listagem, "mais antigo", por "prazo de SLA mais próximo",
+      como a premissa pede. `TicketPriority` sobe para a raiz de `ticket/` quando `sla`
+      precisar dela.
 - [ ] Decidir como `sla` e `audit` sabem que um ticket foi aberto: um evento
       `TicketOpened`, ou a abertura lida pela fachada. Hoje só a transição publica evento.
 - [ ] `audit/domain/AuditEvent` **append-only**: sem `update`, sem `delete`. O repositório
@@ -267,7 +286,8 @@ ser só mais um listener no futuro.
 - [ ] `organisms/AssignmentPanel`: ações respeitando o que o usuário atual pode fazer.
 - [ ] `components/pages/TicketDetailPage` e a rota `tickets/[id]`.
 - [ ] `tickets/new` e a tela de abertura.
-- [ ] `modules/team/`: tela de equipes e membros.
+- [ ] `modules/team/`: tela de equipes e membros. Precisa de `GET /api/v1/teams`, no formato
+      `PageResponse` — e a de usuários, de `GET /api/v1/users`.
 - [ ] Testes com MSW nos componentes que falam com a API: o componente é testado sem
       saber que está mockado.
 
@@ -299,9 +319,12 @@ não deve impedi-los, mas eles **não entram**. Se parecerem necessários, pergu
 - **`SlaClock` é a classe mais difícil do projeto.** Aritmética de tempo com pausas,
   fuso e expediente erra em silêncio. Reserve tempo e cubra com mutation testing.
 - **A regra de visibilidade existe em dois lugares** (`TicketAccessPolicy` e
-  `TicketSpecifications`). Divergência entre elas é vazamento de dados. Toda mudança em
-  uma exige revisitar a outra — considere um teste que rode os mesmos cenários pelos
-  dois caminhos.
+  `TicketSpecifications`). Divergência entre elas é vazamento de dados. O
+  `TicketSpecificationsIT` compara as duas caso a caso, mas só no elenco que ele monta:
+  uma regra nova precisa de uma pessoa e de um ticket novos lá, ou a comparação não a vê.
+- **Se o listener de saída de equipe falhar**, o nome da pessoa continua como responsável
+  atual até a reentrega no próximo start. A visibilidade não é afetada — ela vem do vínculo,
+  que já foi apagado —, mas a tela mostraria um responsável que não enxerga o ticket.
 - **Não há CI.** A disciplina de rodar tudo antes de commitar é a única proteção.
 - **A resposta de criação traz o carimbo de tempo com mais precisão do que o banco guarda.**
   A auditoria do `BaseEntity` preenche `createdAt` com `Instant.now()`, que no Windows tem

@@ -70,6 +70,19 @@ Um ticket está sempre em **um** dos dois modos de atribuição:
 O solicitante sempre enxerga o próprio ticket, em qualquer modo, mas nunca vê
 comentários internos.
 
+Quem muda a atribuição:
+
+| Operação | Quem pode |
+|---|---|
+| Designar ou limpar o responsável atual | Qualquer membro da equipe, para qualquer membro dela |
+| Mandar para o modo exclusivo | O líder da equipe ou um admin, e só para quem participa da equipe |
+| Devolver à equipe | O responsável exclusivo, o líder da equipe de origem ou um admin |
+| Transferir para outra equipe | O líder da equipe atual ou um admin |
+
+No modo exclusivo, o líder da equipe de origem também atua no ticket: move o status e
+escreve notas internas. Quem sai de uma equipe deixa de ser o responsável atual dos
+tickets dela.
+
 ### Fluxo de status
 
 ```
@@ -115,12 +128,13 @@ definir). O relógio do SLA:
 └── CODEBASE-MAP.md   Mapa navegável do código — o que existe e onde
 ```
 
-> **Estado atual: identidade, equipes e o núcleo de tickets prontos.** Login com JWT,
-> sessão revogável, gestão de usuários e equipes, abertura de chamado roteada pela
-> categoria, fluxo de status e conversa com notas internas funcionam de ponta a ponta.
-> **Ainda não há listagem de tickets, atribuição exclusiva, SLA, auditoria nem tela.** O
-> que existe e o que falta está separado em [CODEBASE-MAP.md](CODEBASE-MAP.md); as
-> decisões de autenticação, no [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
+> **Estado atual: identidade, equipes e tickets prontos, com visibilidade e atribuição.**
+> Login com JWT, gestão de usuários e equipes, abertura roteada pela categoria, listagem
+> filtrada pela regra de visibilidade, fluxo de status, conversa com notas internas e
+> atribuição por equipe ou exclusiva funcionam de ponta a ponta. **Ainda não há SLA,
+> auditoria nem tela.** O que existe e o que falta está separado em
+> [CODEBASE-MAP.md](CODEBASE-MAP.md); as decisões de autenticação, no
+> [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
 
 O backend organiza-se por feature (`ticket/`, `team/`, `sla/`), com a versão da API
 apenas na camada web. O frontend organiza-se por módulo, com atomic design dentro de
@@ -212,6 +226,9 @@ curl -s -X POST localhost:8080/api/v1/auth/refresh \
 curl -s -X POST localhost:8080/api/v1/tickets -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"title":"Sem VPN","description":"Desde ontem.","category":"ACCESS","priority":"HIGH"}'
+
+# 5. listar o que a pessoa enxerga: URGENT primeiro, 20 por pagina
+curl -s 'localhost:8080/api/v1/tickets?page=0&size=20' -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
 No perfil `dev`, cada categoria já tem rota para uma das duas equipes de demonstração.

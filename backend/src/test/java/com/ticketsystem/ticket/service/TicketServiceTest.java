@@ -3,6 +3,7 @@ package com.ticketsystem.ticket.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -12,6 +13,8 @@ import com.ticketsystem.auth.CurrentUser;
 import com.ticketsystem.common.error.DomainException;
 import com.ticketsystem.common.error.ProblemKind;
 import com.ticketsystem.support.TicketBuilder;
+import com.ticketsystem.team.TeamFacade;
+import com.ticketsystem.team.UserTeams;
 import com.ticketsystem.ticket.TicketStatus;
 import com.ticketsystem.ticket.TicketStatusChanged;
 import com.ticketsystem.ticket.domain.Comment;
@@ -19,16 +22,19 @@ import com.ticketsystem.ticket.domain.CommentRepository;
 import com.ticketsystem.ticket.domain.InvalidStatusTransitionException;
 import com.ticketsystem.ticket.domain.Ticket;
 import com.ticketsystem.ticket.domain.TicketCategory;
+import com.ticketsystem.ticket.domain.TicketPage;
 import com.ticketsystem.ticket.domain.TicketPriority;
 import com.ticketsystem.ticket.domain.TicketRepository;
 import com.ticketsystem.ticket.domain.TicketRoute;
 import com.ticketsystem.ticket.domain.TicketRouteRepository;
+import com.ticketsystem.ticket.domain.VisibilityScope;
 import com.ticketsystem.user.UserRole;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -64,6 +70,9 @@ class TicketServiceTest {
     private TicketAccessPolicy acesso;
 
     @Mock
+    private TeamFacade equipes;
+
+    @Mock
     private ApplicationEventPublisher eventos;
 
     private TicketService service;
@@ -71,7 +80,7 @@ class TicketServiceTest {
 
     @BeforeEach
     void montar() {
-        service = new TicketService(tickets, comentarios, rotas, acesso, eventos, Clock.fixed(AGORA, ZoneOffset.UTC));
+        service = new TicketService(tickets, comentarios, rotas, acesso, equipes, eventos, Clock.fixed(AGORA, ZoneOffset.UTC));
         ticket = TicketBuilder.aTicket().requestedBy(ANA.id()).assignedToTeam(3L).build();
     }
 
@@ -103,6 +112,42 @@ class TicketServiceTest {
                     .isInstanceOf(UnroutedCategoryException.class)
                     .satisfies(e -> assertThat(tipo(e)).isEqualTo(ProblemKind.CONFLICT));
             verify(tickets, never()).save(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("listar")
+    class Listar {
+
+        private final TicketPage vazia = new TicketPage(List.of(), 0, 20, 0);
+
+        @Test
+        @DisplayName("admin lista sem filtro, e as equipes nem sao consultadas")
+        void adminSemFiltro() {
+            CurrentUser admin = new CurrentUser(1L, UserRole.ADMIN);
+            when(tickets.findVisible(VisibilityScope.everything(1L), 0, 20)).thenReturn(vazia);
+
+            assertThat(service.list(admin, 0, 20)).isSameAs(vazia);
+            verify(equipes, never()).teamsOf(anyLong());
+        }
+
+        @Test
+        @DisplayName("solicitante lista so os proprios, sem consultar equipe — nem um vinculo esquecido conta")
+        void solicitanteSoOsProprios() {
+            when(tickets.findVisible(VisibilityScope.ownTicketsOnly(ANA.id()), 1, 5)).thenReturn(vazia);
+
+            assertThat(service.list(ANA, 1, 5)).isSameAs(vazia);
+            verify(equipes, never()).teamsOf(anyLong());
+        }
+
+        @Test
+        @DisplayName("agente lista com as equipes lidas agora, e nao do token")
+        void agenteComAsEquipesDeAgora() {
+            when(equipes.teamsOf(DIEGO.id())).thenReturn(new UserTeams(Set.of(3L, 4L), Set.of(4L)));
+            when(tickets.findVisible(VisibilityScope.agent(DIEGO.id(), Set.of(3L, 4L), Set.of(4L)), 0, 20))
+                    .thenReturn(vazia);
+
+            assertThat(service.list(DIEGO, 0, 20)).isSameAs(vazia);
         }
     }
 

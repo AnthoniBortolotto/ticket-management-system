@@ -1,6 +1,8 @@
 package com.ticketsystem.team.service;
 
 import com.ticketsystem.auth.CurrentUser;
+import com.ticketsystem.team.TeamMembershipRemoved;
+import com.ticketsystem.team.UserTeams;
 import com.ticketsystem.team.domain.Team;
 import com.ticketsystem.team.domain.TeamMembership;
 import com.ticketsystem.team.domain.TeamMembershipRepository;
@@ -9,6 +11,10 @@ import com.ticketsystem.team.domain.TeamRole;
 import com.ticketsystem.user.UserAccount;
 import com.ticketsystem.user.UserFacade;
 import com.ticketsystem.user.UserRole;
+import java.time.Clock;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,11 +46,16 @@ public class TeamService {
     private final TeamRepository equipes;
     private final TeamMembershipRepository vinculos;
     private final UserFacade usuarios;
+    private final ApplicationEventPublisher eventos;
+    private final Clock relogio;
 
-    TeamService(TeamRepository equipes, TeamMembershipRepository vinculos, UserFacade usuarios) {
+    TeamService(TeamRepository equipes, TeamMembershipRepository vinculos, UserFacade usuarios,
+            ApplicationEventPublisher eventos, Clock relogio) {
         this.equipes = equipes;
         this.vinculos = vinculos;
         this.usuarios = usuarios;
+        this.eventos = eventos;
+        this.relogio = relogio;
     }
 
     @Transactional
@@ -88,6 +99,7 @@ public class TeamService {
             exigirAdmin(ator);
         }
         vinculos.delete(alvo);
+        eventos.publishEvent(new TeamMembershipRemoved(teamId, userId, ator.id(), relogio.instant()));
     }
 
     @Transactional
@@ -106,6 +118,15 @@ public class TeamService {
     @Transactional(readOnly = true)
     public boolean exists(Long teamId) {
         return equipes.findById(teamId).isPresent();
+    }
+
+    /** Onde a pessoa participa e onde lidera, numa consulta so. */
+    @Transactional(readOnly = true)
+    public UserTeams teamsOf(Long userId) {
+        List<TeamMembership> dela = vinculos.findByUser(userId);
+        return new UserTeams(
+                dela.stream().map(TeamMembership::getTeamId).collect(Collectors.toSet()),
+                dela.stream().filter(TeamMembership::isLead).map(TeamMembership::getTeamId).collect(Collectors.toSet()));
     }
 
     /** Participa em qualquer papel. Ordem {@code (teamId, userId)}, como no repositorio. */

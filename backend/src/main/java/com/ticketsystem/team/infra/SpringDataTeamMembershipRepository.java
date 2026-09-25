@@ -18,4 +18,6 @@ interface SpringDataTeamMembershipRepository extends JpaRepository<TeamMembershi
     Optional<TeamMembership> findByTeamIdAndUserId(Long teamId, Long userId);
 
     List<TeamMembership> findByTeamIdOrderByIdAsc(Long teamId);
+
+    List<TeamMembership> findByUserId(Long userId);
 }

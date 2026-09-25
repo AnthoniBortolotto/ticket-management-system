@@ -22,6 +22,11 @@ class JpaTeamMembershipRepository implements TeamMembershipRepository {
     }
 
     @Override
+    public List<TeamMembership> findByUser(Long userId) {
+        return springData.findByUserId(userId);
+    }
+
+    @Override
     public List<TeamMembership> findByTeam(Long teamId) {
         return springData.findByTeamIdOrderByIdAsc(teamId);
     }

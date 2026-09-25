@@ -1,15 +1,20 @@
 package com.ticketsystem.ticket.service;
 
 import com.ticketsystem.auth.CurrentUser;
+import com.ticketsystem.team.TeamFacade;
+import com.ticketsystem.team.UserTeams;
 import com.ticketsystem.ticket.TicketStatus;
 import com.ticketsystem.ticket.TicketStatusChanged;
 import com.ticketsystem.ticket.domain.Comment;
 import com.ticketsystem.ticket.domain.CommentRepository;
 import com.ticketsystem.ticket.domain.Ticket;
 import com.ticketsystem.ticket.domain.TicketCategory;
+import com.ticketsystem.ticket.domain.TicketPage;
 import com.ticketsystem.ticket.domain.TicketPriority;
 import com.ticketsystem.ticket.domain.TicketRepository;
 import com.ticketsystem.ticket.domain.TicketRouteRepository;
+import com.ticketsystem.ticket.domain.VisibilityScope;
+import com.ticketsystem.user.UserRole;
 import java.time.Clock;
 import java.util.List;
 import org.springframework.context.ApplicationEventPublisher;
@@ -35,15 +40,17 @@ public class TicketService {
     private final CommentRepository comentarios;
     private final TicketRouteRepository rotas;
     private final TicketAccessPolicy acesso;
+    private final TeamFacade equipes;
     private final ApplicationEventPublisher eventos;
     private final Clock relogio;
 
     TicketService(TicketRepository tickets, CommentRepository comentarios, TicketRouteRepository rotas,
-            TicketAccessPolicy acesso, ApplicationEventPublisher eventos, Clock relogio) {
+            TicketAccessPolicy acesso, TeamFacade equipes, ApplicationEventPublisher eventos, Clock relogio) {
         this.tickets = tickets;
         this.comentarios = comentarios;
         this.rotas = rotas;
         this.acesso = acesso;
+        this.equipes = equipes;
         this.eventos = eventos;
         this.relogio = relogio;
     }
@@ -62,6 +69,18 @@ public class TicketService {
                 .orElseThrow(UnroutedCategoryException::new)
                 .getTeamId();
         return tickets.save(Ticket.open(ator.id(), equipe, title, description, category, priority));
+    }
+
+    /**
+     * Os tickets que o ator enxerga, filtrados no banco.
+     *
+     * <p>As equipes vem da {@code TeamFacade} a cada chamada, e nao do token: sair de uma
+     * equipe vale na proxima listagem. O escopo espelha o {@link TicketAccessPolicy} — admin
+     * ve tudo, papel {@code REQUESTER} so os proprios, e os demais tambem os das suas equipes.
+     */
+    @Transactional(readOnly = true)
+    public TicketPage list(CurrentUser ator, int page, int size) {
+        return tickets.findVisible(escopoDe(ator), page, size);
     }
 
     @Transactional(readOnly = true)
@@ -113,6 +132,17 @@ public class TicketService {
         return acesso.canHandle(ator, ticket)
                 ? comentarios.findByTicket(ticket.getId())
                 : comentarios.findPublicByTicket(ticket.getId());
+    }
+
+    private VisibilityScope escopoDe(CurrentUser ator) {
+        if (ator.isAdmin()) {
+            return VisibilityScope.everything(ator.id());
+        }
+        if (ator.role() == UserRole.REQUESTER) {
+            return VisibilityScope.ownTicketsOnly(ator.id());
+        }
+        UserTeams dele = equipes.teamsOf(ator.id());
+        return VisibilityScope.agent(ator.id(), dele.memberOf(), dele.leads());
     }
 
     private Ticket visivel(CurrentUser ator, Long ticketId) {

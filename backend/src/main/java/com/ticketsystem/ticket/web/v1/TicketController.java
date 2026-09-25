@@ -1,6 +1,8 @@
 package com.ticketsystem.ticket.web.v1;
 
 import com.ticketsystem.auth.AuthFacade;
+import com.ticketsystem.common.web.PageResponse;
+import com.ticketsystem.ticket.domain.TicketPage;
 import com.ticketsystem.ticket.service.TicketService;
 import com.ticketsystem.ticket.web.v1.dto.CommentRequest;
 import com.ticketsystem.ticket.web.v1.dto.CommentResponse;
@@ -8,6 +10,8 @@ import com.ticketsystem.ticket.web.v1.dto.OpenTicketRequest;
 import com.ticketsystem.ticket.web.v1.dto.TicketResponse;
 import com.ticketsystem.ticket.web.v1.dto.TransitionRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,9 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
  * pode o que depende do ticket — de quem o abriu e de qual equipe o tem —, e a regra mora
  * inteira no {@code TicketAccessPolicy}.
  *
- * <p><strong>Nao ha listagem.</strong> Ela chega na Fase 5, com o filtro de visibilidade na
- * query, escrito teste primeiro contra Postgres. Uma listagem sem esse filtro seria o
- * vazamento que o sistema existe para impedir.
+ * <p>A listagem filtra no banco pela mesma regra do ticket carregado — o
+ * {@code TicketSpecificationsIT} confere que as duas concordam.
  */
 @RestController
 @RequestMapping("/api/v1/tickets")
@@ -39,6 +43,20 @@ class TicketController {
     TicketController(TicketService service, AuthFacade auth) {
         this.service = service;
         this.auth = auth;
+    }
+
+    /**
+     * Os tickets que quem pede enxerga, URGENT primeiro e, entre iguais, do mais antigo.
+     *
+     * <p>Pagina a partir de zero, 20 por padrao e no maximo 100: sem teto, um {@code size}
+     * enorme carregaria a base inteira numa requisicao.
+     */
+    @GetMapping
+    PageResponse<TicketResponse> list(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        TicketPage pagina = service.list(auth.currentUser(), page, size);
+        return PageResponse.of(pagina.content(), TicketResponse::from, pagina.page(), pagina.size(), pagina.totalElements());
     }
 
     /** A equipe nao vem no pedido: sai da rota da categoria. */

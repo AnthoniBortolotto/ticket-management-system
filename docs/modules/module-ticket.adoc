@@ -4,5 +4,8 @@
 |`com.ticketsystem.ticket`
 |Bean references
 |* `c.t.t.TeamFacade` (in Equipes)
+* `c.t.u.UserFacade` (in Usuarios)
 * `c.t.a.AuthFacade` (in Autenticacao)
+|Events listened to
+|* `c.t.t.TeamMembershipRemoved` (async) 
 |===

@@ -17,6 +17,9 @@ public interface TeamMembershipRepository {
     /** O vinculo desta pessoa com esta equipe, se existir. Uma linha, pelo UNIQUE do par. */
     Optional<TeamMembership> find(Long teamId, Long userId);
 
+    /** Os vinculos de uma pessoa, em todas as equipes de que participa. */
+    List<TeamMembership> findByUser(Long userId);
+
     /** Os vinculos da equipe, na ordem em que foram criados. */
     List<TeamMembership> findByTeam(Long teamId);
 
