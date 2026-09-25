@@ -24,9 +24,9 @@ System_Boundary("TicketSystemApplication_boundary", "TicketSystemApplication", $
 
 }
 
+Rel(TicketSystemApplication.TicketSystemApplication.Usuarios, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
 Rel(TicketSystemApplication.TicketSystemApplication.Autenticacao, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
 Rel(TicketSystemApplication.TicketSystemApplication.Autenticacao, TicketSystemApplication.TicketSystemApplication.Usuarios, "uses", $techn="", $tags="", $link="")
-Rel(TicketSystemApplication.TicketSystemApplication.Usuarios, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
 
 SHOW_LEGEND(true)
 hide stereotypes

@@ -2,4 +2,7 @@
 |===
 |Base package
 |`com.ticketsystem.ticket`
+|Bean references
+|* `c.t.t.TeamFacade` (in Equipes)
+* `c.t.a.AuthFacade` (in Autenticacao)
 |===

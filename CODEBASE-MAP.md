@@ -17,12 +17,12 @@ atualização estão em
 
 # Parte 1 — O que existe hoje
 
-**Estado do repositório: identidade, autenticação e equipes prontas; domínio de tickets
-ainda não.** Backend compila, sobe e passa `./mvnw verify`; frontend passa `lint`,
-`typecheck`, `test` e `build`; a stack tem Compose e manifests de Kubernetes. Existem os
-módulos `user`, `auth` e `team` completos — login com JWT, sessão revogável, bloqueio por
-força bruta, quem está pedindo e gestão de equipes e membros. **Ainda não há código de
-ticket nem tela.**
+**Estado do repositório: identidade, equipes e o núcleo de tickets prontos; listagem,
+atribuição, SLA, auditoria e telas ainda não.** Backend compila, sobe e passa
+`./mvnw verify`; frontend passa `lint`, `typecheck`, `test` e `build`; a stack tem Compose e
+manifests de Kubernetes. Existem os módulos `user`, `auth`, `team` e o núcleo de `ticket` —
+abrir chamado roteado pela categoria, consultar, mover pelo fluxo de status e conversar,
+com a regra de acesso de um ticket carregado. **Não há listagem de tickets nem tela.**
 
 **Não há CI.** Toda verificação é manual: rode os comandos de
 [CLAUDE.md](CLAUDE.md#comandos) antes de commitar. Em particular, **as imagens Docker
@@ -59,18 +59,18 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 |---|---|---|
 | `TicketSystemApplication.java` | ✅ | Entrypoint do Spring Boot. |
 | `config/package-info.java` | ✅ | Declara `config` como módulo aberto do Modulith. |
-| `config/SecurityConfig.java` | ✅ | Cadeia de filtros stateless: valida o bearer token em cada requisição, libera health, documentação e os três endpoints de sessão (um a um, nunca por curinga), exige `ADMIN` em `/api/v1/users` e nega o resto. Devolve 401/403 ao advice, para saírem em `ProblemDetail`. Declara o `PasswordEncoder` — BCrypt puro, por causa do CHECK da V2. |
+| `config/SecurityConfig.java` | ✅ | Cadeia de filtros stateless: valida o bearer token em cada requisição, libera health, documentação e os três endpoints de sessão (um a um, nunca por curinga), exige `ADMIN` em `/api/v1/users` e `/api/v1/ticket-routes` e nega o resto. Devolve 401/403 ao advice, para saírem em `ProblemDetail`. Declara o `PasswordEncoder` — BCrypt puro, por causa do CHECK da V2. |
 | `config/TimeConfig.java` | ✅ | Publica o `Clock` em UTC, para expiração e bloqueio serem testáveis sem dormir. |
 | `config/JacksonConfig.java` | ✅ | Força data em ISO-8601. Existe como classe porque no Jackson 3 a flag mudou de enum e o Boot 4 não expõe propriedade para ela. |
 | `config/OpenApiConfig.java` | ✅ | Metadados e esquema de segurança do schema em `/v3/api-docs`, de onde saem os tipos do frontend. |
 | `config/JpaConfig.java` | ✅ | Liga a auditoria do Spring Data que preenche `createdAt` e `updatedAt`. |
 | `common/package-info.java` | ✅ | Declara `common` como módulo aberto do Modulith. |
 | `common/error/FieldProblem.java` | ✅ | Um campo rejeitado pela validação e o motivo. Vai na propriedade `errors` do `ProblemDetail`. |
-| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP no formato `ProblemDetail` (RFC 9457). Herda de `ResponseEntityExceptionHandler`, então 404, 405 e 415 já saem padronizados; traduz qualquer `DomainException` pelo `ProblemKind`, e 401/403 do Spring Security sem vazar a mensagem interna. |
+| `common/error/GlobalExceptionHandler.java` | ✅ | Traduz exceção em resposta HTTP no formato `ProblemDetail` (RFC 9457). Herda de `ResponseEntityExceptionHandler`, então 404, 405 e 415 já saem padronizados; traduz qualquer `DomainException` pelo `ProblemKind`, gravação concorrente perdida (`@Version`) em 409 e 401/403 do Spring Security sem vazar a mensagem interna. |
 | `common/error/ProblemKind.java` | ✅ | Que tipo de problema aconteceu — inválido, não autenticado, proibido, não encontrado, conflito, bloqueado — e o status HTTP de cada um. |
 | `common/error/DomainException.java` | ✅ | Base das exceções de todos os módulos. É o que deixa o advice único sem `common` importar módulo nenhum: o import inverso fecharia ciclo. |
 | `common/domain/BaseEntity.java` | ✅ | Id e carimbos de tempo em UTC, com igualdade por id. |
-| `ticket/`, `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
+| `sla/`, `audit/` | 🚧 | Só `package-info.java` com javadoc descrevendo o módulo. **A anotação `@ApplicationModule` entra junto com a primeira classe** — anotar pacote vazio quebra o build. |
 | `user/package-info.java` | ✅ | Declara o módulo `user` e registra que o hash de senha não sai dele. |
 | `user/UserRole.java` | ✅ | Papel global `REQUESTER`, `AGENT`, `ADMIN`. Na raiz, e não em `domain/`: `auth` precisa dele para o claim do token, e subpacote é interno. |
 | `user/UserAccount.java` | ✅ | O que os outros módulos podem saber de um usuário: id, e-mail, nome e papel — nunca o hash. |
@@ -98,7 +98,7 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `auth/infra/SpringDataRefreshTokenRepository.java`, `JpaRefreshTokenRepository.java` | ✅ | Refresh tokens em JPA. A busca para renovar exige transação aberta, senão a trava não valeria. |
 | `auth/web/v1/AuthController.java` + `dto/` | ✅ | `POST /api/v1/auth/login`, `/refresh` e `/logout`, públicos também no contrato OpenAPI. |
 | `team/package-info.java` | ✅ | Declara o módulo `team` e registra que ele depende de `user` e `auth`, sem ciclo. |
-| `team/TeamFacade.java` | ✅ | Única porta do módulo: "participa desta equipe?" e "lidera?", lidos do banco a cada chamada. É o que `ticket` vai consumir. Ordem `(teamId, userId)` em todo o módulo. |
+| `team/TeamFacade.java` | ✅ | Única porta do módulo: "participa desta equipe?", "lidera?" e "existe?", lidos do banco a cada chamada. `ticket` consome as três. Ordem `(teamId, userId)` em todo o módulo. |
 | `team/domain/Team.java` | ✅ | Entidade da equipe. Apara o nome e guarda a caixa digitada; descrição em branco vira ausente. |
 | `team/domain/TeamMembership.java`, `TeamRole.java` | ✅ | Vínculo de um usuário com uma equipe, papel `MEMBER` ou `LEAD`. Sempre nasce `MEMBER`; as duas pontas não mudam depois de gravadas. |
 | `team/domain/TeamRepository.java`, `TeamMembershipRepository.java` | ✅ | Portas de persistência. A busca por nome ignora a caixa, como o índice único da V2. |
@@ -106,6 +106,22 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `team/service/TeamDetails.java` e as 6 exceções | ✅ | Equipe com os vínculos; `TeamNotFound` e `TeamMembershipNotFound` (404), `TeamActionForbidden` (403), `TeamNameAlreadyUsed`, `AlreadyTeamMember` e `IneligibleTeamMember` (409). |
 | `team/infra/` | ✅ | Spring Data e os dois adaptadores para as portas de domínio. |
 | `team/web/v1/TeamController.java` + `dto/` | ✅ | `POST /api/v1/teams`, `GET /api/v1/teams/{id}`, `POST .../members`, `PUT .../members/{userId}/role` e `DELETE .../members/{userId}`. Sem regra no `SecurityConfig`: ela depende de liderar aquela equipe e mora inteira no service. Sem listagem até a decisão de paginação. |
+| `ticket/package-info.java` | ✅ | Declara o módulo `ticket` e registra que ele depende de `team` e `auth`, que não sabem que tickets existem. |
+| `ticket/TicketStatus.java` | ✅ | Os status **e** as transições permitidas: o diagrama do README mais `IN_PROGRESS → RESOLVED`. Nada volta para `OPEN`, nada transiciona para si mesmo. Na raiz porque viaja no evento; incluído à mão no JaCoCo e no PITest, que só olham `domain`/`service`. |
+| `ticket/TicketStatusChanged.java` | ✅ | Evento de cada transição — de, para, quem e quando, só identificadores. Publicado na mesma transação que grava; `sla` e `audit` vão escutar. |
+| `ticket/domain/Ticket.java` | ✅ | O chamado. Nasce `OPEN` em modo equipe; a transição confere o fluxo e devolve o status de origem. `@Version` recusa a segunda de duas transições simultâneas. O `toString` não leva texto livre. |
+| `ticket/domain/TicketPriority.java`, `TicketCategory.java` | ✅ | Prioridade (chave da política de SLA) e categoria (chave do roteamento). Ficam em `domain` até outro módulo precisar delas. |
+| `ticket/domain/Comment.java` | ✅ | Resposta pública ou nota interna, cada uma com a sua fábrica — um `boolean` trocado publicaria nota interna para o cliente. Imutável. |
+| `ticket/domain/TicketRoute.java` | ✅ | Qual equipe recebe os tickets de uma categoria. Dado no banco, não regra em Java. |
+| `ticket/domain/TicketRepository.java`, `CommentRepository.java`, `TicketRouteRepository.java` | ✅ | Portas de persistência. A de tickets é o ponto de troca de armazenamento, com contrato testado; a de comentários tem uma consulta que já exclui nota interna no SQL. Sem listagem de tickets até a Fase 5. |
+| `ticket/domain/InvalidStatusTransitionException.java` | ✅ | Transição fora do fluxo (409), com os dois status no `detail`. |
+| `ticket/service/TicketAccessPolicy.java` | ✅ | Quem vê, atende e move um ticket **já carregado**: admin tudo; solicitante vê o seu e só fecha ou reabre; membro da equipe atende. Modo exclusivo falha fechado até a Fase 5. É metade da regra de visibilidade — a outra, em SQL, é da Fase 5 e precisa concordar com esta. |
+| `ticket/service/TicketService.java` | ✅ | Abrir na equipe da rota, consultar, transicionar publicando `TicketStatusChanged` e conversar. Quem não vê recebe 404 igual a inexistente; quem vê sem poder, 403; fluxo inválido, 409. |
+| `ticket/service/TicketRouteService.java` | ✅ | Cria ou redireciona a rota de uma categoria, recusando equipe inexistente. |
+| `ticket/service/*Exception.java` | ✅ | `TicketNotFound` (404), `TicketActionForbidden` (403), `UnroutedCategory` (409) e `RouteTeamNotFound` (400). |
+| `ticket/infra/` | ✅ | Spring Data e os três adaptadores. Sem `JpaSpecificationExecutor` ainda: ele chega com a listagem. |
+| `ticket/web/v1/TicketController.java` + `dto/` | ✅ | `POST /api/v1/tickets`, `GET /{id}`, `POST /{id}/transitions`, `GET` e `POST /{id}/comments`. A equipe não vem no pedido; `internal` é obrigatório no comentário, sem default. Sem regra no `SecurityConfig`. |
+| `ticket/web/v1/TicketRouteController.java` | ✅ | `GET /api/v1/ticket-routes` e `PUT /api/v1/ticket-routes/{category}`, só admin, por URL. |
 
 ### `src/main/resources/`
 
@@ -117,7 +133,8 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `db/migration/V2__create_users_and_teams.sql` | ✅ | Cria `users`, `teams` e `team_memberships`. Um usuário participa de várias equipes (UNIQUE no par); e-mail é guardado sempre em minúsculas, então o UNIQUE comum já resolve unicidade e login; nome de equipe é único por índice funcional, preservando a caixa digitada. Um CHECK exige BCrypt completo em `password_hash` — senha em texto, placeholder não substituído ou hash truncado não entram. |
 | `db/migration/V3__seed_admin_user.sql` | ✅ | Semeia o primeiro administrador com o hash vindo de `ADMIN_PASSWORD_HASH`. Sem a variável, o CHECK da V2 derruba o boot nesta migration. |
 | `db/migration/V4__create_refresh_tokens_and_login_lockouts.sql` | ✅ | Tabelas de sessão (`refresh_tokens`, só com hash SHA-256, família e motivo de revogação) e de tentativas de login (`login_lockouts`, uma linha por conta, fora de `users`). |
-| `db/seed/R__demo_users_and_teams.sql` | ✅ | Elenco de demonstração (duas equipes, líderes, agentes e solicitantes) fora da linha de migrations versionadas. Repetível e idempotente; só roda no perfil `dev`. |
+| `db/migration/V5__create_tickets_comments_and_routes.sql` | ✅ | `tickets`, `ticket_comments` e `ticket_routes`. CHECKs garantem exatamente um modo de atribuição, origem só em modo exclusivo e responsável atual só em modo equipe. Ticket segura pessoa e equipe por RESTRICT; comentário vai em cascata com o ticket; a flag `internal` é obrigatória, sem default. Índice por coluna que a visibilidade vai filtrar. |
+| `db/seed/R__demo_users_and_teams.sql` | ✅ | Elenco de demonstração (duas equipes, líderes, agentes e solicitantes) e a rota de cada categoria, fora da linha de migrations versionadas. Repetível e idempotente; só roda no perfil `dev`. |
 
 ### `src/test/`
 
@@ -126,10 +143,11 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `ModularityTest.java` | ✅ | Roda `ApplicationModules.verify()` e gera os diagramas em `docs/modules/`. |
 | `EventPublicationIT.java` | ✅ | Publica um evento numa transação e prova o caminho inteiro: gravado no registro, entregue ao listener assíncrono e movido para o arquivo ao concluir. |
 | `TicketSystemApplicationIT.java` | ✅ | Sobe o contexto inteiro contra um Postgres real e confirma que Flyway e JPA ligaram. |
+| `TicketsSchemaIT.java` | ✅ | Escrito antes da V5: os dois modos nunca juntos nem ausentes, origem e responsável atual só no modo certo, enums, títulos em branco, RESTRICT de pessoa e equipe, cascata e flag obrigatória do comentário, uma rota por categoria. |
 | `UsersAndTeamsSchemaIT.java` | ✅ | Fixa as regras de `users`, `teams` e `team_memberships` que só existem quando o Postgres executa: unicidade e normalização de e-mail, papéis dentro do enum, participação em várias equipes, cascata dos vínculos, os formatos de hash aceitos e recusados, e que o admin semeado autentica com a senha que o README publica. |
 | `config/JacksonConfigTest.java` | ✅ | Fixa a serialização de `Instant` como string ISO-8601 — o formato é contrato, não default de biblioteca. |
 | `common/domain/BaseEntityTest.java` | ✅ | A igualdade de entidade: duas instâncias sem id nunca são iguais, e o hash sobrevive à persistência. |
-| `common/error/GlobalExceptionHandlerTest.java` | ✅ | Fixa o contrato de erro com MockMvc: `ProblemDetail` em validação, em método não suportado, em cada `ProblemKind` e em 401/403, sem vazar a mensagem interna. |
+| `common/error/GlobalExceptionHandlerTest.java` | ✅ | Fixa o contrato de erro com MockMvc: `ProblemDetail` em validação, em método não suportado, em cada `ProblemKind`, em gravação concorrente (409) e em 401/403, sem vazar a mensagem interna. |
 | `RefreshTokensAndLockoutsSchemaIT.java` | ✅ | Constraints da V4 contra Postgres real: hash de token só em SHA-256 hexadecimal, motivo de revogação coerente, um bloqueio por conta, cascata ao apagar o usuário. |
 | `config/SecurityIT.java` | ✅ | A cadeia de filtros com tokens reais: expirado, outra chave, payload adulterado e `alg: none` dão 401; papel insuficiente dá 403; rota pública responde; tudo em `ProblemDetail`. |
 | `config/OpenApiContractIT.java` | ✅ | O contrato publicado: os endpoints de sessão sem bearer, o resto com. |
@@ -143,8 +161,16 @@ verificadas pelo Spring Modulith: raiz do pacote é público, subpacote é inter
 | `team/domain/*Test.java`, `team/service/TeamServiceTest.java` | ✅ | Invariantes da equipe e do vínculo; cada regra de permissão, inclusive que a recusa acontece antes de consultar o alvo. |
 | `team/infra/TeamRepositoryIT.java` | ✅ | Alguém em duas equipes com vínculos independentes, busca de nome sem caixa, ordem dos vínculos e larguras da V2. |
 | `team/web/v1/TeamControllerIT.java` | ✅ | Os casos negativos pelo endpoint, olhando o banco depois da recusa: membro comum, líder de outra equipe e solicitante não gerenciam. Equipe invisível e inexistente dão o mesmo corpo; promoção e remoção valem na hora, com o mesmo token. |
+| `ticket/TicketStatusTest.java` | ✅ | Os 36 pares de status, um a um, contra uma tabela escrita a partir do requisito. |
+| `ticket/domain/*Test.java` | ✅ | Invariantes do ticket, do comentário e da rota, e `toString` sem texto livre. |
+| `ticket/domain/TicketRepositoryContractTest.java` | ✅ | O contrato do repositório de tickets escrito contra a **interface**, inclusive a recusa de cópia desatualizada. Abstrato: um adaptador novo o estende e roda os mesmos casos. |
+| `ticket/service/*Test.java` | ✅ | A regra de acesso linha a linha, casos negativos primeiro; e que o service a consulta antes de agir, sem gravar nem publicar numa recusa. |
+| `ticket/infra/JpaTicketRepositoryIT.java`, `CommentRepositoryIT.java` | ✅ | O contrato contra o adaptador JPA em Postgres real, e a conversa pública sem nota interna no SQL. |
+| `ticket/web/v1/TicketControllerIT.java` | ✅ | Pelo endpoint, olhando o banco depois de cada recusa: outro solicitante e agente de outra equipe recebem 404 igual a inexistente; solicitante não conduz o atendimento nem escreve nota interna, e nunca recebe uma; sair da equipe vale na hora. |
+| `ticket/web/v1/TicketRouteControllerIT.java` | ✅ | Roteamento só por admin, redirecionamento sem duplicar, equipe e categoria inexistentes. |
 | `support/UserBuilder.java` | ✅ | Usuário de teste em uma linha, com e-mail único e id sintético — sem o id, `BaseEntity.equals` faria teste de visibilidade passar por acidente. Não conhece equipe. |
 | `support/TeamBuilder.java` | ✅ | Equipe de teste com os vínculos em uma linha, recebendo ids de usuário e não a entidade `User`. Monta alguém em duas equipes, o caso que a Fase 5 exercita. |
+| `support/TicketBuilder.java` | ✅ | Ticket de teste em uma linha, por ids. Põe o ticket em qualquer status ou em modo exclusivo direto, sem percorrer o fluxo. |
 | `support/AuthTokens.java` | ✅ | Token válido e cada forja de token inválido num lugar só, assinando com o encoder da própria aplicação. |
 | `support/SecureMockMvc.java` | ✅ | MockMvc sobre o contexto com a cadeia de segurança real, sem precisar do `spring-boot-webmvc-test`. |
 | `support/PostgresContainer.java` | ✅ | Container Postgres 16 reaproveitado, ligado ao contexto por `@ServiceConnection`. |
@@ -246,8 +272,9 @@ ainda são planejados.
 
 | Quero... | Vai estar em |
 |---|---|
-| Mudar quem pode ver um ticket | `backend/.../ticket/service/TicketAccessPolicy.java` + `ticket/infra/TicketSpecifications.java` |
-| Mudar as transições de status permitidas | `backend/.../ticket/domain/TicketStatus.java` |
+| Mudar quem pode ver um ticket | `backend/.../ticket/service/TicketAccessPolicy.java` ✅ + `ticket/infra/TicketSpecifications.java` — as duas juntas, sempre |
+| Mudar as transições de status permitidas | `backend/.../ticket/TicketStatus.java` ✅ |
+| Mudar para qual equipe vai uma categoria | `PUT /api/v1/ticket-routes/{category}`, como admin; em dev, `db/seed/` ✅ |
 | Mudar como o prazo de SLA é calculado | `backend/.../sla/service/SlaClock.java` |
 | Chamar um módulo a partir de outro | A fachada na raiz do módulo alvo (`ticket/TicketFacade.java`) — nunca uma classe interna |
 | Reagir a algo que aconteceu em outro módulo | Um `@ApplicationModuleListener` no seu próprio módulo |
@@ -265,7 +292,7 @@ ainda são planejados.
 | Mudar cor, espaçamento ou raio | `frontend/src/styles/tokens.css` ✅ |
 | Mudar variáveis de ambiente ou containers | `docker/` ✅, os `.env.example` ✅ e, na mesma alteração, `k8s/base/` ✅ |
 | Entender o que testar antes e o que testar depois | [CLAUDE.md](CLAUDE.md#testes) |
-| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ — `IntegrationTest`, `UserBuilder`, `TeamBuilder`, `AuthTokens`, `SecureMockMvc` |
+| Escrever um teste de integração | `backend/src/test/java/com/ticketsystem/support/` ✅ — `IntegrationTest`, `UserBuilder`, `TeamBuilder`, `TicketBuilder`, `AuthTokens`, `SecureMockMvc` |
 | Escrever um teste E2E | `e2e/specs/` ✅ |
 
 ---
@@ -286,28 +313,17 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 | Caminho | O que fará |
 |---|---|
 | `TeamFacade`: perguntas em conjunto | "De quais equipes esta pessoa participa?" e "quais lidera?", para o filtro de listagem de tickets. Entram na Fase 5, com o primeiro consumidor. |
-| `GET /api/v1/teams` | Listagem de equipes. Espera a decisão de paginação da Fase 4, junto com a de usuários. |
+| `GET /api/v1/teams` | Listagem de equipes. Segue o formato de paginação que a listagem de tickets fixar na Fase 5, junto com a de usuários. |
 
 ### `ticket/` — o núcleo do domínio
 
 | Caminho | O que fará |
 |---|---|
-| `ticket/TicketFacade.java` | API pública do módulo. Único ponto por onde outro módulo fala com tickets. |
-| `ticket/TicketStatusChanged.java` | Evento publicado a cada transição. Consumido por `sla` e `audit`. |
+| `ticket/TicketFacade.java` | API pública do módulo, com o primeiro módulo que precisar perguntar algo sobre tickets. |
 | `ticket/TicketAssignmentChanged.java` | Evento publicado a cada reatribuição. |
-| `ticket/domain/Ticket.java` | Entidade do chamado. Guarda os dois modos de atribuição e garante que só um esteja ativo. |
-| `ticket/domain/TicketStatus.java` | Enum dos status **e** as transições permitidas entre eles. |
-| `ticket/domain/TicketPriority.java` | Enum de prioridade; é a chave de busca da política de SLA. |
-| `ticket/domain/Comment.java` | Comentário do ticket, com flag de interno/público. |
-| `ticket/domain/TicketRepository.java` | **Interface** do repositório, em linguagem de negócio. É o ponto de troca de armazenamento. |
-| `ticket/service/TicketService.java` | Orquestra abertura, transição de status e comentários, e publica os eventos. |
 | `ticket/service/TicketAssignmentService.java` | Troca entre modo equipe e modo exclusivo e valida quem pode fazer isso. |
-| `ticket/service/TicketAccessPolicy.java` | Responde "este usuário pode ver/atuar neste ticket?". Fonte única da regra de visibilidade. |
-| `ticket/infra/SpringDataTicketRepository.java` | Interface Spring Data com `JpaSpecificationExecutor`; detalhe de implementação, o service não a enxerga. |
-| `ticket/infra/JpaTicketRepository.java` | Adapta a interface Spring Data para a interface de domínio. |
-| `ticket/infra/TicketSpecifications.java` | Traduz a regra de visibilidade em predicados SQL, para filtrar no banco e não em memória. |
-| `ticket/web/v1/TicketController.java` | Endpoints de ticket da v1. |
-| `ticket/web/v1/dto/` | Records de entrada e saída da API de tickets na v1. |
+| `ticket/infra/TicketSpecifications.java` | A regra de visibilidade do `TicketAccessPolicy` em predicados SQL, para filtrar a listagem no banco. `SpringDataTicketRepository` ganha `JpaSpecificationExecutor` junto. |
+| `GET /api/v1/tickets` | A listagem paginada, filtrada pela visibilidade na query. Fixa o formato de paginação da API. |
 
 ### `sla/` — prazos
 
@@ -334,12 +350,11 @@ Dentro de cada feature, só `web` é versionado — `domain`, `service` e `infra
 
 | Caminho | O que fará |
 |---|---|
-| `V5__create_tickets.sql` | Tabela de tickets, com a constraint que impede os dois modos de atribuição ao mesmo tempo. |
-| `V6__create_comments_and_audit.sql` | Comentários e eventos de auditoria. |
+| `V6__create_audit_events.sql` | Eventos de auditoria, append-only. Os comentários, previstos aqui, entraram na `V5`. |
 | `V7__create_sla.sql` | Políticas de SLA, calendário comercial e horários customizados. |
 
-A numeração vai até a `V4`, na Parte 1. Migration é forward-only: o schema de tickets
-entra na `V5`, nunca editando as anteriores.
+A numeração vai até a `V5`, na Parte 1. Migration é forward-only: o que vier entra na `V6`
+em diante, nunca editando as anteriores.
 
 Nomes sujeitos a ajuste conforme a implementação avança.
 
@@ -349,11 +364,7 @@ A estrutura espelha a de `main/`. A estratégia está em [CLAUDE.md](CLAUDE.md#t
 
 | Caminho | O que fará |
 |---|---|
-| `support/TicketBuilder.java` | Monta tickets para teste em uma linha, escondendo o setup de equipe, solicitante e SLA. |
-| `ticket/service/` | Testes unitários das regras de transição, atribuição e acesso. |
-| `ticket/domain/TicketRepositoryContractTest.java` | Testes de contrato escritos contra a **interface** do repositório. Qualquer adaptador futuro roda esta mesma suíte sem reescrita. |
-| `ticket/infra/TicketSpecificationsIT.java` | **Escrito antes da implementação.** Verifica contra Postgres real que a listagem não devolve ticket que o usuário não pode ver. |
-| `ticket/web/v1/` | Testes de controller com MockMvc: status HTTP, formato de erro e serialização. |
+| `ticket/infra/TicketSpecificationsIT.java` | **Escrito antes da implementação.** Verifica contra Postgres real que a listagem não devolve ticket que o usuário não pode ver — e que concorda com o `TicketAccessPolicy` caso a caso. |
 | `sla/service/SlaClockTest.java` | Casos de borda do relógio: virada de expediente, fim de semana e tempo parado em `WAITING_CUSTOMER`. |
 
 ---

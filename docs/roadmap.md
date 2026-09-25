@@ -28,6 +28,10 @@ Estas saíram de discussão e não devem ser reabertas sem motivo novo.
 | Vínculo com equipe | Um usuário participa de várias equipes; UNIQUE no par | `V2__create_users_and_teams.sql` |
 | Gestão de equipe | Criar equipe e mexer em liderança: só admin. `MEMBER`: admin ou `LEAD` da equipe. Não-membro recebe 404, membro sem permissão recebe 403 | `team/service/TeamService.java` |
 | Quem entra em equipe | Agente e admin; solicitante nunca | `team/service/TeamService.java` |
+| Equipe de um ticket novo | A categoria decide, por rota configurada por admin; categoria sem rota recusa a abertura com 409, sem equipe default | `V5__create_tickets_comments_and_routes.sql` |
+| Fluxo de status | O diagrama do README mais `IN_PROGRESS → RESOLVED` | `ticket/TicketStatus.java` |
+| O que o solicitante decide | Confirmar o fechamento (`RESOLVED → CLOSED`) e reabrir; o resto do fluxo é de quem atende | `ticket/service/TicketAccessPolicy.java` |
+| Ticket invisível | 404 com o mesmo corpo de um inexistente; 403 só para quem vê e não pode | `ticket/service/TicketService.java` |
 | Infra local | Compose desenvolve, Kubernetes demonstra | [ADR 0002](adr/0002-infra-local-compose-e-kubernetes.md) |
 | Versões da stack | Ver a tabela e as armadilhas confirmadas | [ADR 0001](adr/0001-versoes-da-stack.md) |
 
@@ -154,22 +158,37 @@ Decisões da fase, que não estavam escritas aqui:
 
 ## Fase 4 — `ticket`: núcleo
 
-A maior fase. Vale quebrar em commits por sub-bloco.
+**Concluída.** O que ela entregou está no [CODEBASE-MAP](../CODEBASE-MAP.md): a `V5` com o
+`TicketsSchemaIT` escrito antes dela, o fluxo de status testado par a par, abertura roteada
+pela categoria, transições com evento, conversa com notas internas, o contrato do
+repositório e os endpoints com os casos negativos.
 
-- [ ] `V5__create_tickets.sql`, com a **constraint que impede os dois modos de atribuição
-      ao mesmo tempo**. A regra é do banco, não só do Java — e a constraint tem teste de
-      integração próprio, escrito **antes**, porque só existe quando o Postgres executa.
-- [ ] `ticket/domain/TicketStatus`: o enum **e** as transições permitidas. TDD estrito:
-      toda transição inválida rejeitada, `REOPENED` alcançável de `RESOLVED` e de
-      `CLOSED`.
-- [ ] `ticket/domain/TicketPriority`, `ticket/domain/Ticket`, `ticket/domain/TicketRepository`.
-- [ ] `ticket/domain/Comment` com a flag interno/público.
-- [ ] `ticket/service/TicketService`: abrir, transicionar, comentar. Publica
-      `TicketStatusChanged`.
-- [ ] `ticket/infra/`: `SpringDataTicketRepository` + `JpaTicketRepository`.
-- [ ] `ticket/domain/TicketRepositoryContractTest`: testes escritos contra a
-      **interface**. É o que permite trocar o armazenamento depois sem reescrever teste.
-- [ ] `ticket/web/v1/`: controller e DTOs. Entidade JPA nunca cruza a fronteira HTTP.
+O que mudou em relação ao que estava escrito aqui:
+
+- **A regra de acesso de um ticket carregado veio para esta fase.** O `TicketAccessPolicy`
+  era da Fase 5, mas os endpoints desta fase sem ele seriam o vazamento que o sistema existe
+  para impedir, por uma fase inteira. Ele cobre o que já existe — admin, solicitante e
+  membro da equipe — e **falha fechado no modo exclusivo**: até a Fase 5, um ticket nesse
+  modo só é visível para admin e solicitante.
+- **Não há listagem de tickets.** Ela precisa do filtro em SQL, que é escrito teste
+  primeiro na Fase 5. Por isso a decisão de formato de paginação também foi para lá — e as
+  listagens de usuários e equipes esperam por ela.
+- **Nota interna nunca chega ao solicitante — já testado pelo endpoint**, item que estava
+  na Fase 5. A conversa de quem não atende vem de uma consulta que exclui as notas no SQL.
+- **Os comentários entraram na `V5`**, com os tickets, e não na `V6` com a auditoria.
+  Junto veio `ticket_routes`, o roteamento de categoria para equipe.
+- **`TicketStatus` mora na raiz de `ticket/`, e não em `domain/`**, pelo mesmo motivo do
+  `UserRole`: viaja no `TicketStatusChanged`, que `sla` e `audit` vão consumir. Como os
+  filtros do JaCoCo e do PITest só olham `domain` e `service`, ele foi incluído à mão nos
+  dois. `TicketPriority` fica em `domain` até a Fase 6 precisar dela fora.
+- **`@Version` no ticket.** Duas transições simultâneas a partir do mesmo status passariam
+  as duas pela validação; a segunda recebe 409. O contrato do repositório exige isso de
+  todo adaptador, e o advice traduz a recusa.
+- **`internal` é obrigatório no comentário**, sem default. Com default `false`, a nota
+  interna de quem esqueceu o campo iria para o cliente.
+- **Só `TicketStatusChanged` é publicado.** Abrir um ticket não publica evento ainda: a
+  Fase 6 decide se `sla` e `audit` precisam de um `TicketOpened` ou se leem a abertura
+  pela fachada.
 
 ## Fase 5 — Visibilidade e atribuição
 
@@ -181,8 +200,12 @@ vazamento de dados, não bug de tela.
       afirmando o que a pessoa **não** vê.
 - [ ] `ticket/infra/TicketSpecifications`: a regra em SQL. Filtro na query, nunca em
       memória depois de carregar tudo.
-- [ ] `ticket/service/TicketAccessPolicy`: a mesma regra para um ticket já carregado.
-      **As duas precisam concordar** — se divergirem, alguém vê o que não deveria.
+- [ ] `ticket/service/TicketAccessPolicy`: **estender** a regra, que já existe para o modo
+      equipe, com o responsável exclusivo e o líder da equipe de origem. **As duas precisam
+      concordar** — incluindo a guarda de que papel `REQUESTER` nunca atende, mesmo com
+      vínculo de equipe. Se divergirem, alguém vê o que não deveria.
+- [ ] `GET /api/v1/tickets`: a listagem, paginada e filtrada na query. Fixa o formato de
+      paginação da API, que as listagens de usuários e equipes passam a seguir.
 - [ ] `ticket/service/TicketAssignmentService`: troca entre modo equipe e modo exclusivo.
       Ao ir para exclusivo, preserva `origin_team_id`; ao voltar, valida que quem pede é
       o responsável, o líder da equipe de origem ou um admin.
@@ -193,15 +216,15 @@ vazamento de dados, não bug de tela.
       remover um membro não olha ticket nenhum — `team` não sabe que tickets existem, e
       deve continuar sem saber: a saída provável é `team` publicar `TeamMembershipRemoved` e
       `ticket` escutar.
-- [ ] Comentário interno nunca chega ao solicitante — teste de integração pelo endpoint,
-      não só unitário do service.
 
 ## Fase 6 — `sla` e `audit`
 
 Os dois escutam eventos. `ticket` não sabe que eles existem, e é isso que faz notificação
 ser só mais um listener no futuro.
 
-- [ ] `V6__create_comments_and_audit.sql`, `V7__create_sla.sql`.
+- [ ] `V6__create_audit_events.sql`, `V7__create_sla.sql`. Os comentários já estão na `V5`.
+- [ ] Decidir como `sla` e `audit` sabem que um ticket foi aberto: um evento
+      `TicketOpened`, ou a abertura lida pela fachada. Hoje só a transição publica evento.
 - [ ] `audit/domain/AuditEvent` **append-only**: sem `update`, sem `delete`. O repositório
       não expõe esses métodos — a regra é estrutural, não de disciplina.
 - [ ] `audit/service/TicketEventListener` com `@ApplicationModuleListener`.
@@ -280,6 +303,12 @@ não deve impedi-los, mas eles **não entram**. Se parecerem necessários, pergu
   uma exige revisitar a outra — considere um teste que rode os mesmos cenários pelos
   dois caminhos.
 - **Não há CI.** A disciplina de rodar tudo antes de commitar é a única proteção.
+- **A resposta de criação traz o carimbo de tempo com mais precisão do que o banco guarda.**
+  A auditoria do `BaseEntity` preenche `createdAt` com `Instant.now()`, que no Windows tem
+  sete casas decimais; o Postgres guarda seis. O `POST` devolve o valor de memória e o
+  `GET` seguinte, o gravado — o mesmo ticket com dois `createdAt` diferentes. Visto rodando
+  a Fase 4; vale para toda entidade. Truncar em microssegundos no `DateTimeProvider` do
+  `JpaConfig` resolve de uma vez, e precisa ser feito antes de o frontend comparar datas.
 - **Duas requisições simultâneas criando a mesma equipe, ou o mesmo vínculo, dão 500.** A
   checagem prévia devolve 409, mas entre ela e o `INSERT` a outra pode gravar, e aí quem
   recusa é o índice único — sem tradução para 409. O mesmo vale para e-mail de usuário.

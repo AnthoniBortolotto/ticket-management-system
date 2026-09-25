@@ -240,6 +240,10 @@
               <includes>
                 <include>com/ticketsystem/*/domain/**/*.class</include>
                 <include>com/ticketsystem/*/service/**/*.class</include>
+                <!-- Regra de dominio fora de domain/: o TicketStatus mora na raiz do modulo
+                     porque viaja no evento TicketStatusChanged, e o filtro acima o deixaria
+                     de fora — justamente o fluxo de status, a regra que mais precisa dele. -->
+                <include>com/ticketsystem/ticket/TicketStatus.class</include>
               </includes>
               <!-- `common` e `config` sao transversais, nao features. Cobrar 80% deles
                    e o caminho mais curto para teste de getter, que e o que o threshold
@@ -289,6 +293,8 @@
           <targetClasses>
             <param>com.ticketsystem.*.domain.*</param>
             <param>com.ticketsystem.*.service.*</param>
+            <!-- Pelo mesmo motivo do include do JaCoCo: fluxo de status fora de domain/. -->
+            <param>com.ticketsystem.ticket.TicketStatus</param>
           </targetClasses>
           <targetTests>
             <param>com.ticketsystem.*</param>

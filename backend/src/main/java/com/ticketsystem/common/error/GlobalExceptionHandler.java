@@ -2,6 +2,7 @@ package com.ticketsystem.common.error;
 
 import java.util.Comparator;
 import java.util.List;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -75,6 +76,24 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail corpo =
                 ProblemDetail.forStatusAndDetail(excecao.kind().status(), excecao.detail());
         corpo.setTitle(excecao.title());
+        return corpo;
+    }
+
+    /**
+     * Outra requisicao gravou o mesmo recurso entre a leitura e a gravacao desta.
+     *
+     * <p>Vem do {@code @Version} das entidades — hoje, do ticket, onde duas transicoes
+     * simultaneas a partir do mesmo status passariam as duas. 409 diz a quem integra o que
+     * fazer: recarregar e tentar de novo. A mensagem original tem o nome da classe e o id, e
+     * fica so no log.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    ProblemDetail aoPerderCorridaDeGravacao(OptimisticLockingFailureException excecao) {
+        logger.debug("Gravacao concorrente recusada pela versao", excecao);
+
+        ProblemDetail corpo = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT, "O recurso foi alterado por outra requisicao. Recarregue e tente de novo.");
+        corpo.setTitle("Alterado ao mesmo tempo");
         return corpo;
     }
 

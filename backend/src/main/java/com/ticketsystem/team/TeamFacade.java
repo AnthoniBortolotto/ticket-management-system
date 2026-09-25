@@ -29,6 +29,14 @@ public class TeamFacade {
         this.service = service;
     }
 
+    /**
+     * A equipe existe. Serve ao roteamento de tickets, configurado por admin — nao diz nada
+     * sobre quem pode enxerga-la.
+     */
+    public boolean exists(Long teamId) {
+        return service.exists(teamId);
+    }
+
     /** Participa da equipe, como membro ou como lider. */
     public boolean isMember(Long teamId, Long userId) {
         return service.isMember(teamId, userId);

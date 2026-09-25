@@ -1,5 +1,5 @@
 @startuml
-title <size:24>Ticket</size>
+title <size:24>Tickets</size>
 
 set separator none
 top to bottom direction
@@ -17,10 +17,25 @@ top to bottom direction
 
 System_Boundary("TicketSystemApplication_boundary", "TicketSystemApplication", $tags="") {
   Container_Boundary("TicketSystemApplication.TicketSystemApplication_boundary", "TicketSystemApplication", $tags="") {
-    Component(TicketSystemApplication.TicketSystemApplication.Ticket, "Ticket", $techn="Module", $descr="", $tags="", $link="")
+    Component(TicketSystemApplication.TicketSystemApplication.Tickets, "Tickets", $techn="Module", $descr="", $tags="", $link="")
+    Component(TicketSystemApplication.TicketSystemApplication.Comum, "Comum", $techn="Module", $descr="", $tags="", $link="")
+    Component(TicketSystemApplication.TicketSystemApplication.Usuarios, "Usuarios", $techn="Module", $descr="", $tags="", $link="")
+    Component(TicketSystemApplication.TicketSystemApplication.Autenticacao, "Autenticacao", $techn="Module", $descr="", $tags="", $link="")
+    Component(TicketSystemApplication.TicketSystemApplication.Equipes, "Equipes", $techn="Module", $descr="", $tags="", $link="")
   }
 
 }
+
+Rel(TicketSystemApplication.TicketSystemApplication.Usuarios, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Equipes, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Equipes, TicketSystemApplication.TicketSystemApplication.Usuarios, "uses", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Equipes, TicketSystemApplication.TicketSystemApplication.Autenticacao, "uses", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Autenticacao, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Autenticacao, TicketSystemApplication.TicketSystemApplication.Usuarios, "uses", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Tickets, TicketSystemApplication.TicketSystemApplication.Comum, "depends on", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Tickets, TicketSystemApplication.TicketSystemApplication.Usuarios, "depends on", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Tickets, TicketSystemApplication.TicketSystemApplication.Equipes, "uses", $techn="", $tags="", $link="")
+Rel(TicketSystemApplication.TicketSystemApplication.Tickets, TicketSystemApplication.TicketSystemApplication.Autenticacao, "uses", $techn="", $tags="", $link="")
 
 SHOW_LEGEND(true)
 hide stereotypes

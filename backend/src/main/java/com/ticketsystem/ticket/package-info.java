@@ -1,13 +1,17 @@
 /**
- * Nucleo do dominio: ciclo de vida do chamado, atribuicao e visibilidade.
+ * Nucleo do dominio: ciclo de vida do chamado, conversa, roteamento e acesso.
  *
- * <p>Modulo ainda sem implementacao. Ao criar a primeira classe aqui, anote este pacote
- * com {@code @ApplicationModule(displayName = "Tickets")}: a partir dai o Modulith passa a
- * tratar a raiz deste pacote como API publica e {@code domain}, {@code service},
- * {@code infra} e {@code web} como internos, quebrando o build se outro modulo os
- * importar.
+ * <p>A superficie publica e o que outros modulos vao consumir: {@code TicketStatus} e o
+ * evento {@code TicketStatusChanged}, que {@code sla} e {@code audit} escutam. {@code domain},
+ * {@code service}, {@code infra} e {@code web} sao internos e o Modulith quebra o build se
+ * outro modulo os importar.
  *
- * <p>Anotar um pacote vazio nao funciona — o ArchUnit falha ao refletir sobre um
- * {@code package-info} solitario.
+ * <p>Depende de {@code team}, para perguntar se alguem participa da equipe do ticket, e de
+ * {@code auth}, para saber quem pede. Nenhum dos dois sabe que tickets existem — e e isso que
+ * mantem o grafo aciclico.
+ *
+ * <p>As entidades guardam ids puros de pessoa e de equipe, sem {@code @ManyToOne}:
+ * referenciar classe interna de outro modulo quebraria o build.
  */
+@org.springframework.modulith.ApplicationModule(displayName = "Tickets")
 package com.ticketsystem.ticket;

@@ -84,6 +84,10 @@ class SecurityConfig {
                 .requestMatchers(PUBLIC_PATHS).permitAll()
                 .requestMatchers(HttpMethod.POST, SESSION_PATHS).permitAll()
                 .requestMatchers("/api/v1/users", "/api/v1/users/**").hasRole("ADMIN")
+                // Roteamento de categoria para equipe e configuracao do sistema, e a regra
+                // e so de papel. Tickets e equipes nao aparecem aqui: a regra deles depende
+                // do recurso, e mora inteira no service de cada modulo.
+                .requestMatchers("/api/v1/ticket-routes", "/api/v1/ticket-routes/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .oauth2ResourceServer(resourceServer -> resourceServer
                 // O conversor vai explicito: e ele que transforma o claim `role` em

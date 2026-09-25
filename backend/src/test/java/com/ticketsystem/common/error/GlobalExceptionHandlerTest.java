@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
@@ -118,6 +119,18 @@ class GlobalExceptionHandlerTest {
                 Matchers.not(Matchers.containsString("segredo-interno"))));
     }
 
+    @Test
+    @DisplayName("gravacao concorrente perdida vira 409, sem nome de entidade no corpo")
+    void conflitoDeConcorrenciaVira409() throws Exception {
+        // Duas pessoas movendo o mesmo ticket ao mesmo tempo: a segunda perde, e precisa
+        // saber que deve recarregar — nao receber um 500 que parece falha do servidor.
+        mockMvc.perform(get("/erro/concorrencia"))
+            .andExpect(status().isConflict())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.title").value("Alterado ao mesmo tempo"))
+            .andExpect(jsonPath("$.detail").value(Matchers.not(Matchers.containsString("segredo-interno"))));
+    }
+
     @RestController
     static class ControllerDeTeste {
 
@@ -134,6 +147,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/erro/autenticacao")
         void lancarNaoAutenticado() {
             throw new BadCredentialsException("segredo-interno: usuario nao encontrado");
+        }
+
+        @GetMapping("/erro/concorrencia")
+        void lancarConflitoDeConcorrencia() {
+            throw new ObjectOptimisticLockingFailureException("segredo-interno.Ticket", 42L);
         }
 
         @GetMapping("/erro/acesso")

@@ -73,13 +73,24 @@ comentários internos.
 ### Fluxo de status
 
 ```
-OPEN → IN_PROGRESS → WAITING_CUSTOMER → RESOLVED → CLOSED
-                ↑__________________|        |
-                                            ↓
-                                        REOPENED → IN_PROGRESS
+OPEN             → IN_PROGRESS
+IN_PROGRESS      → WAITING_CUSTOMER, RESOLVED
+WAITING_CUSTOMER → IN_PROGRESS, RESOLVED
+RESOLVED         → CLOSED, REOPENED
+CLOSED           → REOPENED
+REOPENED         → IN_PROGRESS
 ```
 
-`REOPENED` é alcançável a partir de `RESOLVED` e de `CLOSED`.
+`REOPENED` é alcançável a partir de `RESOLVED` e de `CLOSED`; nada volta para `OPEN`. O
+solicitante decide duas coisas: confirmar o fechamento de um ticket resolvido e reabrir.
+Todo o resto do fluxo é de quem atende.
+
+### Abertura e roteamento
+
+O solicitante escolhe a **categoria** (`HARDWARE`, `SOFTWARE`, `ACCESS`, `OTHER`), e a
+categoria decide a equipe que recebe o ticket, por uma rota que o admin configura. O
+solicitante nunca precisa conhecer as equipes. Categoria sem rota recusa a abertura: não
+há equipe default escondendo a configuração que falta.
 
 ### SLA
 
@@ -104,11 +115,12 @@ definir). O relógio do SLA:
 └── CODEBASE-MAP.md   Mapa navegável do código — o que existe e onde
 ```
 
-> **Estado atual: identidade, autenticação e equipes prontas.** Login com JWT, sessão
-> revogável, bloqueio por força bruta, gestão mínima de usuários e gestão de equipes e
-> membros funcionam de ponta a ponta. **Ainda não há tickets nem tela.** O que existe e
-> o que falta está separado em [CODEBASE-MAP.md](CODEBASE-MAP.md); as decisões de
-> autenticação, no [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
+> **Estado atual: identidade, equipes e o núcleo de tickets prontos.** Login com JWT,
+> sessão revogável, gestão de usuários e equipes, abertura de chamado roteada pela
+> categoria, fluxo de status e conversa com notas internas funcionam de ponta a ponta.
+> **Ainda não há listagem de tickets, atribuição exclusiva, SLA, auditoria nem tela.** O
+> que existe e o que falta está separado em [CODEBASE-MAP.md](CODEBASE-MAP.md); as
+> decisões de autenticação, no [ADR 0003](docs/adr/0003-autenticacao-jwt.md).
 
 O backend organiza-se por feature (`ticket/`, `team/`, `sla/`), com a versão da API
 apenas na camada web. O frontend organiza-se por módulo, com atomic design dentro de
@@ -195,7 +207,14 @@ curl -s localhost:8080/api/v1/users/1 -H "Authorization: Bearer $ACCESS_TOKEN"
 # 3. renovar: o refresh token usado deixa de valer, e reapresenta-lo derruba a sessao
 curl -s -X POST localhost:8080/api/v1/auth/refresh \
   -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
+
+# 4. abrir um chamado (logado como ana.solicitante): ACCESS vai para a Infraestrutura
+curl -s -X POST localhost:8080/api/v1/tickets -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Sem VPN","description":"Desde ontem.","category":"ACCESS","priority":"HIGH"}'
 ```
+
+No perfil `dev`, cada categoria já tem rota para uma das duas equipes de demonstração.
 
 Cinco senhas erradas seguidas bloqueiam a conta por 15 minutos (`423`). O contrato
 completo está em `http://localhost:8080/swagger-ui.html`.

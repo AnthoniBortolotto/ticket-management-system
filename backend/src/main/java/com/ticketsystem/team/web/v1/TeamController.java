@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>O controller so descobre quem pede, pela {@code AuthFacade}, e entrega ao service
  * junto com o resto. Nao ha listagem de equipes ainda: ela espera a decisao de paginacao
- * da Fase 4, como a de usuarios — devolver uma lista agora e passar a paginar depois
+ * da Fase 5, como a de usuarios — devolver uma lista agora e passar a paginar depois
  * mudaria o formato da resposta, e isso ja seria uma {@code v2}.
  */
 @RestController

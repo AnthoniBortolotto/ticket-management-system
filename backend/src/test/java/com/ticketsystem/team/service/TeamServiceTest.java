@@ -405,6 +405,18 @@ class TeamServiceTest {
         }
 
         @Test
+        @DisplayName("existencia de equipe nao depende de quem pergunta")
+        void existencia() {
+            // Para o roteamento de tickets, que e configuracao de admin: a pergunta e so se o
+            // id aponta para uma equipe, sem regra de visibilidade no meio.
+            existeEquipe();
+            when(equipes.findById(999L)).thenReturn(Optional.empty());
+
+            assertThat(service.exists(equipeId)).isTrue();
+            assertThat(service.exists(999L)).isFalse();
+        }
+
+        @Test
         @DisplayName("sem vinculo nao e nem membro nem lider")
         void semVinculo() {
             assertThat(service.isMember(equipeId, DE_FORA.id())).isFalse();

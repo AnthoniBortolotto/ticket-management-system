@@ -15,6 +15,10 @@
 --
 -- A senha vem de `${demo_password_hash}`, pelo mesmo caminho do admin. Nenhum hash
 -- literal em SQL, nem em arquivo que so roda em dev.
+--
+-- O roteamento de categoria para equipe (V5) mora aqui tambem, e nao num R__ proprio: o
+-- Flyway roda as repetiveis em ordem alfabetica de descricao, e um "demo ticket routes"
+-- rodaria antes deste arquivo, num banco novo, sem equipe nenhuma para apontar.
 
 INSERT INTO teams (name, description, created_at, updated_at)
 VALUES ('Suporte N1', 'Primeiro atendimento: triagem e chamados de uso do dia a dia.', now(), now()),
@@ -52,3 +56,16 @@ FROM (VALUES ('lead.suporte@ticketsystem.local', 'Suporte N1', 'LEAD'),
          JOIN users u ON lower(u.email) = lower(v.email)
          JOIN teams t ON lower(t.name) = lower(v.team)
 ON CONFLICT (user_id, team_id) DO NOTHING;
+
+-- Hardware e acesso vao para a infraestrutura; software e o resto, para o primeiro
+-- atendimento. DO UPDATE, e nao DO NOTHING: se alguem mudar a rota aqui, e isto que o
+-- elenco de demonstracao deve refletir na proxima subida.
+INSERT INTO ticket_routes (category, team_id, created_at, updated_at)
+SELECT v.category, t.id, now(), now()
+FROM (VALUES ('HARDWARE', 'Infraestrutura'),
+             ('ACCESS', 'Infraestrutura'),
+             ('SOFTWARE', 'Suporte N1'),
+             ('OTHER', 'Suporte N1'))
+         AS v(category, team)
+         JOIN teams t ON lower(t.name) = lower(v.team)
+ON CONFLICT (category) DO UPDATE SET team_id = excluded.team_id, updated_at = now();

@@ -102,6 +102,12 @@ public class TeamService {
         return vinculos.save(alvo);
     }
 
+    /** A equipe existe. Sem regra de visibilidade: serve a configuracao feita por admin. */
+    @Transactional(readOnly = true)
+    public boolean exists(Long teamId) {
+        return equipes.findById(teamId).isPresent();
+    }
+
     /** Participa em qualquer papel. Ordem {@code (teamId, userId)}, como no repositorio. */
     @Transactional(readOnly = true)
     public boolean isMember(Long teamId, Long userId) {
